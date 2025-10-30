@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const { uploadImageToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
 require('dotenv').config();
 
 const app = express();
@@ -24,7 +25,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 // Submission Schema
 const submissionSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  photo: { type: String, required: true }, // Base64 encoded image
+  photo: { type: String, required: true }, // S3 URL
   prompt: { type: String, required: true },
   customText: { type: String, default: '' },
   status: { 
@@ -33,7 +34,7 @@ const submissionSchema = new mongoose.Schema({
     default: 'pending'
   },
   generatedImages: [{
-    data: String, // Base64 encoded
+    url: String, // S3 URL
     filename: String,
     createdAt: { type: Date, default: Date.now }
   }],
@@ -216,9 +217,14 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       return res.status(400).json({ error: 'Name, photo, and prompt are required' });
     }
 
+    // Upload photo to S3
+    console.log('Uploading photo to S3...');
+    const photoUrl = await uploadImageToS3(photo, 'submissions');
+    console.log(`Photo uploaded: ${photoUrl}`);
+
     const submission = new Submission({
       name,
-      photo,
+      photo: photoUrl, // Store S3 URL instead of base64
       prompt,
       customText: customText || '',
       status: 'pending'
@@ -231,6 +237,7 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       submissionId: submission._id
     });
   } catch (error) {
+    console.error('Submission error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -335,11 +342,31 @@ app.patch('/api/submissions/:id/status', authenticateAdminOrProcessor, async (re
 // Delete submission (admin page)
 app.delete('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findByIdAndDelete(req.params.id);
+    const submission = await Submission.findById(req.params.id);
     
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    
+    // Delete images from S3
+    try {
+      await deleteImageFromS3(submission.photo);
+      
+      // Delete generated images if any
+      if (submission.generatedImages && submission.generatedImages.length > 0) {
+        for (const img of submission.generatedImages) {
+          if (img.url) {
+            await deleteImageFromS3(img.url);
+          }
+        }
+      }
+    } catch (s3Error) {
+      console.error('Error deleting from S3:', s3Error);
+      // Continue with database deletion even if S3 deletion fails
+    }
+    
+    // Delete from database
+    await Submission.findByIdAndDelete(req.params.id);
     
     res.json({ message: 'Submission deleted successfully' });
   } catch (error) {
@@ -357,10 +384,29 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
       return res.status(401).json({ error: 'Invalid processor secret' });
     }
 
+    // Upload generated images to S3
+    console.log(`Uploading ${generatedImages.length} generated images to S3...`);
+    const uploadedImages = [];
+    
+    for (const img of generatedImages) {
+      try {
+        const imageUrl = await uploadImageToS3(img.data, 'results');
+        uploadedImages.push({
+          url: imageUrl, // Store S3 URL instead of base64
+          filename: img.filename,
+          createdAt: img.createdAt || new Date()
+        });
+        console.log(`Uploaded: ${img.filename}`);
+      } catch (uploadError) {
+        console.error(`Failed to upload ${img.filename}:`, uploadError);
+        // Continue with other images even if one fails
+      }
+    }
+
     const submission = await Submission.findByIdAndUpdate(
       req.params.id,
       { 
-        generatedImages,
+        generatedImages: uploadedImages,
         status: 'completed',
         processedAt: new Date()
       },
@@ -373,6 +419,7 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
 
     res.json(submission);
   } catch (error) {
+    console.error('Error updating submission with images:', error);
     res.status(500).json({ error: error.message });
   }
 });
