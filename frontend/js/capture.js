@@ -145,7 +145,15 @@ function capturePhoto() {
     canvas.height = video.videoHeight;
     
     const context = canvas.getContext('2d');
+    
+    // Mirror the photo to match the mirrored video view
+    context.translate(canvas.width, 0);
+    context.scale(-1, 1);
+    
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Reset transformation
+    context.setTransform(1, 0, 0, 1, 0, 0);
     
     photoData = canvas.toDataURL('image/jpeg', 0.9);
     

@@ -32,6 +32,8 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transform: scaleX(-1); /* Mirror the camera view */
+    -webkit-transform: scaleX(-1); /* Safari support */
 }
 
 .camera-overlay {
