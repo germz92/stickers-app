@@ -773,13 +773,13 @@ async function displayGeneratedImages(submission) {
         const slot = document.getElementById(`imageSlot${i + 1}`);
         const imageData = submission.generatedImages[i];
         
-        // Process image to print-ready specs (600 DPI, 2.5" height = 1500px)
-        const printReadyImage = await resizeImageForPrint(imageData.data, 1500);
+        // Use S3 URL directly (already print-ready from processor)
+        const imageUrl = imageData.url;
         
         slot.innerHTML = `
-            <img src="${printReadyImage}" alt="Generated Sticker ${i + 1}">
+            <img src="${imageUrl}" alt="Generated Sticker ${i + 1}">
             <div class="image-info">600 DPI • 2.5"</div>
-            <button class="download-btn" onclick="downloadImage('${printReadyImage}', 'sticker_${i + 1}_print_ready.png')">
+            <button class="download-btn" onclick="downloadImageFromUrl('${imageUrl}', 'sticker_${i + 1}_${imageData.filename}')">
                 📥 Download
             </button>
         `;
@@ -820,6 +820,28 @@ function downloadImage(base64Data, filename) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+// Download image from URL
+async function downloadImageFromUrl(url, filename) {
+    try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up blob URL
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+    } catch (error) {
+        console.error('Download error:', error);
+        alert('Failed to download image. Please try again.');
+    }
 }
 
 // Download all images
