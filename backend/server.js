@@ -57,9 +57,10 @@ const captureSettingsSchema = new mongoose.Schema({
   // Prompt Configuration
   promptMode: {
     type: String,
-    enum: ['free', 'locked', 'presets'],
+    enum: ['free', 'locked', 'presets', 'suggestions'],
     default: 'free'
   },
+  lockedPromptTitle: { type: String, default: '' },
   lockedPromptValue: { type: String, default: '' },
   promptPresets: [{
     name: String,
@@ -69,7 +70,7 @@ const captureSettingsSchema = new mongoose.Schema({
   // Custom Text Configuration
   customTextMode: {
     type: String,
-    enum: ['free', 'locked', 'presets'],
+    enum: ['free', 'locked', 'presets', 'suggestions'],
     default: 'free'
   },
   lockedCustomTextValue: { type: String, default: '' },
@@ -471,6 +472,7 @@ app.put('/api/capture-settings', authenticateAdmin, async (req, res) => {
   try {
     const { 
       promptMode, 
+      lockedPromptTitle,
       lockedPromptValue, 
       promptPresets,
       customTextMode,
@@ -485,6 +487,7 @@ app.put('/api/capture-settings', authenticateAdmin, async (req, res) => {
     }
     
     settings.promptMode = promptMode || 'free';
+    settings.lockedPromptTitle = lockedPromptTitle || '';
     settings.lockedPromptValue = lockedPromptValue || '';
     settings.promptPresets = promptPresets || [];
     
