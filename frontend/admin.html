@@ -259,27 +259,39 @@
                             <label class="mode-radio">
                                 <input type="radio" name="promptMode" value="free" checked onchange="updateSettingsView()">
                                 <span>Free Entry</span>
-                                <div class="mode-desc">Users type their own prompt</div>
+                                <div class="mode-desc">Users type anything</div>
                             </label>
 
                             <label class="mode-radio">
                                 <input type="radio" name="promptMode" value="locked" onchange="updateSettingsView()">
                                 <span>Locked</span>
-                                <div class="mode-desc">Single fixed prompt</div>
+                                <div class="mode-desc">Fixed prompt only</div>
                             </label>
 
                             <label class="mode-radio">
                                 <input type="radio" name="promptMode" value="presets" onchange="updateSettingsView()">
                                 <span>Presets</span>
-                                <div class="mode-desc">Multiple choice buttons</div>
+                                <div class="mode-desc">Button choices only</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="suggestions" onchange="updateSettingsView()">
+                                <span>Suggestions</span>
+                                <div class="mode-desc">Buttons + custom entry</div>
                             </label>
                         </div>
 
                         <!-- Locked Prompt -->
                         <div id="lockedPromptSettings" class="field-settings" style="display: none;">
                             <div class="form-group">
+                                <label>Theme Title <span class="required">*</span></label>
+                                <input type="text" id="lockedPromptTitle" placeholder="e.g., Space Adventure">
+                                <div class="hint">Shown to users on capture page</div>
+                            </div>
+                            <div class="form-group">
                                 <label>Locked Prompt Value <span class="required">*</span></label>
                                 <textarea id="lockedPromptValue" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
+                                <div class="hint">Hidden from users, used for generation</div>
                             </div>
                         </div>
 
@@ -287,6 +299,13 @@
                         <div id="promptPresetsSettings" class="field-settings" style="display: none;">
                             <div class="presets-list" id="promptPresetsList"></div>
                             <button onclick="addPromptPreset()" class="btn-secondary btn-sm">Add Prompt Option</button>
+                        </div>
+
+                        <!-- Prompt Suggestions -->
+                        <div id="promptSuggestionsSettings" class="field-settings" style="display: none;">
+                            <p class="hint">Users can click suggestions or type their own prompt</p>
+                            <div class="presets-list" id="promptSuggestionsList"></div>
+                            <button onclick="addPromptSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
                         </div>
                     </div>
 
@@ -298,19 +317,25 @@
                             <label class="mode-radio">
                                 <input type="radio" name="customTextMode" value="free" checked onchange="updateSettingsView()">
                                 <span>Free Entry</span>
-                                <div class="mode-desc">Users type their own text</div>
+                                <div class="mode-desc">Users type anything</div>
                             </label>
 
                             <label class="mode-radio">
                                 <input type="radio" name="customTextMode" value="locked" onchange="updateSettingsView()">
                                 <span>Locked</span>
-                                <div class="mode-desc">Single fixed text</div>
+                                <div class="mode-desc">Fixed text only</div>
                             </label>
 
                             <label class="mode-radio">
                                 <input type="radio" name="customTextMode" value="presets" onchange="updateSettingsView()">
                                 <span>Presets</span>
-                                <div class="mode-desc">Multiple choice buttons</div>
+                                <div class="mode-desc">Button choices only</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="customTextMode" value="suggestions" onchange="updateSettingsView()">
+                                <span>Suggestions</span>
+                                <div class="mode-desc">Buttons + custom entry</div>
                             </label>
                         </div>
 
@@ -318,7 +343,8 @@
                         <div id="lockedCustomTextSettings" class="field-settings" style="display: none;">
                             <div class="form-group">
                                 <label>Locked Custom Text Value <span class="required">*</span></label>
-                                <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA">
+                                <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA 2024">
+                                <div class="hint">Shown to users on capture page</div>
                             </div>
                         </div>
 
@@ -326,6 +352,13 @@
                         <div id="customTextPresetsSettings" class="field-settings" style="display: none;">
                             <div class="presets-list" id="customTextPresetsList"></div>
                             <button onclick="addCustomTextPreset()" class="btn-secondary btn-sm">Add Text Option</button>
+                        </div>
+
+                        <!-- Custom Text Suggestions -->
+                        <div id="customTextSuggestionsSettings" class="field-settings" style="display: none;">
+                            <p class="hint">Users can click suggestions or type their own text</p>
+                            <div class="presets-list" id="customTextSuggestionsList"></div>
+                            <button onclick="addCustomTextSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
                         </div>
                     </div>
 

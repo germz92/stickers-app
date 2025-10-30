@@ -554,6 +554,33 @@ header h1 {
     box-shadow: 0 4px 20px rgba(0, 229, 255, 0.3);
 }
 
+.suggestion-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border-style: dashed;
+    opacity: 0.9;
+}
+
+.suggestion-btn:hover {
+    opacity: 1;
+    background: rgba(0, 229, 255, 0.08);
+}
+
+.locked-info {
+    margin-bottom: 20px;
+}
+
+.locked-value {
+    padding: 15px;
+    background: rgba(0, 229, 255, 0.1);
+    border: 1px solid rgba(0, 229, 255, 0.3);
+    border-radius: 4px;
+    color: #00e5ff;
+    font-size: 1.1em;
+    font-weight: 500;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .form-container {

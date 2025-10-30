@@ -168,10 +168,21 @@ function applyCaptureSettings(settings) {
     
     // Handle Prompt Settings
     if (settings.promptMode === 'locked') {
-        // Lock prompt
+        // Lock prompt - show title, hide input
         promptGroup.style.display = 'none';
         promptInput.value = settings.lockedPromptValue || '';
         promptInput.readOnly = true;
+        
+        // Show theme title
+        const themeContainer = document.createElement('div');
+        themeContainer.className = 'preset-selection locked-info';
+        themeContainer.innerHTML = `
+            <div class="form-group">
+                <label><strong>Theme</strong></label>
+                <div class="locked-value">${escapeHtml(settings.lockedPromptTitle || 'Locked Theme')}</div>
+            </div>
+        `;
+        submitBtn.parentElement.insertBefore(themeContainer, submitBtn);
         
     } else if (settings.promptMode === 'presets') {
         // Show prompt presets
@@ -198,6 +209,36 @@ function applyCaptureSettings(settings) {
             buttonsContainer.appendChild(button);
         });
         
+    } else if (settings.promptMode === 'suggestions') {
+        // Show suggestions + keep input visible
+        promptGroup.style.display = 'flex';
+        promptInput.readOnly = false;
+        promptInput.value = '';
+        
+        if (settings.promptPresets && settings.promptPresets.length > 0) {
+            const suggestionsContainer = document.createElement('div');
+            suggestionsContainer.className = 'preset-selection';
+            suggestionsContainer.innerHTML = `
+                <div class="form-group">
+                    <label><strong>Quick Suggestions</strong></label>
+                    <div class="preset-buttons suggestions" id="promptSuggestionButtons"></div>
+                </div>
+            `;
+            
+            // Insert after prompt input
+            promptGroup.parentElement.insertBefore(suggestionsContainer, promptGroup.nextSibling);
+            
+            const buttonsContainer = document.getElementById('promptSuggestionButtons');
+            settings.promptPresets.forEach((preset, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'preset-btn suggestion-btn';
+                button.textContent = preset.name;
+                button.onclick = () => selectPromptSuggestion(index, settings.promptPresets);
+                buttonsContainer.appendChild(button);
+            });
+        }
+        
     } else {
         // Free entry
         promptGroup.style.display = 'flex';
@@ -207,10 +248,21 @@ function applyCaptureSettings(settings) {
     
     // Handle Custom Text Settings
     if (settings.customTextMode === 'locked') {
-        // Lock custom text
+        // Lock custom text - show value, hide input
         customTextGroup.style.display = 'none';
         customTextInput.value = settings.lockedCustomTextValue || '';
         customTextInput.readOnly = true;
+        
+        // Show locked text value
+        const lockedContainer = document.createElement('div');
+        lockedContainer.className = 'preset-selection locked-info';
+        lockedContainer.innerHTML = `
+            <div class="form-group">
+                <label><strong>Custom Text</strong></label>
+                <div class="locked-value">${escapeHtml(settings.lockedCustomTextValue || '')}</div>
+            </div>
+        `;
+        submitBtn.parentElement.insertBefore(lockedContainer, submitBtn);
         
     } else if (settings.customTextMode === 'presets') {
         // Show custom text presets
@@ -236,6 +288,36 @@ function applyCaptureSettings(settings) {
             button.onclick = () => selectCustomTextPreset(index, settings.customTextPresets);
             buttonsContainer.appendChild(button);
         });
+        
+    } else if (settings.customTextMode === 'suggestions') {
+        // Show suggestions + keep input visible
+        customTextGroup.style.display = 'flex';
+        customTextInput.readOnly = false;
+        customTextInput.value = '';
+        
+        if (settings.customTextPresets && settings.customTextPresets.length > 0) {
+            const suggestionsContainer = document.createElement('div');
+            suggestionsContainer.className = 'preset-selection';
+            suggestionsContainer.innerHTML = `
+                <div class="form-group">
+                    <label><strong>Quick Suggestions</strong></label>
+                    <div class="preset-buttons suggestions" id="customTextSuggestionButtons"></div>
+                </div>
+            `;
+            
+            // Insert after custom text input
+            customTextGroup.parentElement.insertBefore(suggestionsContainer, customTextGroup.nextSibling);
+            
+            const buttonsContainer = document.getElementById('customTextSuggestionButtons');
+            settings.customTextPresets.forEach((preset, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'preset-btn suggestion-btn';
+                button.textContent = preset.name;
+                button.onclick = () => selectCustomTextSuggestion(index, settings.customTextPresets);
+                buttonsContainer.appendChild(button);
+            });
+        }
         
     } else {
         // Free entry
@@ -264,6 +346,29 @@ function selectCustomTextPreset(index, presets) {
     
     document.getElementById('customTextInput').value = presets[index].value;
     validateForm();
+}
+
+// Select prompt suggestion (fills input but doesn't lock it)
+function selectPromptSuggestion(index, presets) {
+    const promptInput = document.getElementById('promptInput');
+    promptInput.value = presets[index].value;
+    promptInput.focus();
+    validateForm();
+}
+
+// Select custom text suggestion (fills input but doesn't lock it)
+function selectCustomTextSuggestion(index, presets) {
+    const customTextInput = document.getElementById('customTextInput');
+    customTextInput.value = presets[index].value;
+    customTextInput.focus();
+    validateForm();
+}
+
+// Escape HTML for safe display
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Retake photo

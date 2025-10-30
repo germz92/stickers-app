@@ -1038,6 +1038,7 @@ function displayCaptureSettings() {
     }
     
     // Set locked values
+    document.getElementById('lockedPromptTitle').value = captureSettings.lockedPromptTitle || '';
     document.getElementById('lockedPromptValue').value = captureSettings.lockedPromptValue || '';
     document.getElementById('lockedCustomTextValue').value = captureSettings.lockedCustomTextValue || '';
     
@@ -1051,6 +1052,15 @@ function displayCaptureSettings() {
         });
     }
     
+    // Display prompt suggestions
+    const promptSuggestionsList = document.getElementById('promptSuggestionsList');
+    promptSuggestionsList.innerHTML = '';
+    if (captureSettings.promptMode === 'suggestions' && captureSettings.promptPresets && captureSettings.promptPresets.length > 0) {
+        captureSettings.promptPresets.forEach((preset, index) => {
+            addPromptSuggestionToList(preset.name, preset.value, index);
+        });
+    }
+    
     // Display custom text presets
     const textList = document.getElementById('customTextPresetsList');
     textList.innerHTML = '';
@@ -1058,6 +1068,15 @@ function displayCaptureSettings() {
     if (captureSettings.customTextPresets && captureSettings.customTextPresets.length > 0) {
         captureSettings.customTextPresets.forEach((preset, index) => {
             addCustomTextPresetToList(preset.name, preset.value, index);
+        });
+    }
+    
+    // Display custom text suggestions
+    const customTextSuggestionsList = document.getElementById('customTextSuggestionsList');
+    customTextSuggestionsList.innerHTML = '';
+    if (captureSettings.customTextMode === 'suggestions' && captureSettings.customTextPresets && captureSettings.customTextPresets.length > 0) {
+        captureSettings.customTextPresets.forEach((preset, index) => {
+            addCustomTextSuggestionToList(preset.name, preset.value, index);
         });
     }
     
@@ -1072,9 +1091,11 @@ function updateSettingsView() {
     
     document.getElementById('lockedPromptSettings').style.display = promptMode === 'locked' ? 'block' : 'none';
     document.getElementById('promptPresetsSettings').style.display = promptMode === 'presets' ? 'block' : 'none';
+    document.getElementById('promptSuggestionsSettings').style.display = promptMode === 'suggestions' ? 'block' : 'none';
     
     document.getElementById('lockedCustomTextSettings').style.display = customTextMode === 'locked' ? 'block' : 'none';
     document.getElementById('customTextPresetsSettings').style.display = customTextMode === 'presets' ? 'block' : 'none';
+    document.getElementById('customTextSuggestionsSettings').style.display = customTextMode === 'suggestions' ? 'block' : 'none';
 }
 
 // Add Prompt Preset
@@ -1119,6 +1140,48 @@ function addCustomTextPresetToList(name = '', value = '', index) {
     list.appendChild(div);
 }
 
+// Add Prompt Suggestion
+function addPromptSuggestion() {
+    addPromptSuggestionToList('', '', promptPresetCount);
+}
+
+function addPromptSuggestionToList(name = '', value = '', index) {
+    const list = document.getElementById('promptSuggestionsList');
+    const id = `prompt-suggestion-${index}`;
+    promptPresetCount = Math.max(promptPresetCount, index + 1);
+    
+    const div = document.createElement('div');
+    div.className = 'preset-item';
+    div.id = id;
+    div.innerHTML = `
+        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Astronaut)">
+        <textarea class="preset-value" rows="1" placeholder="Prompt value (e.g., astronaut floating in space)">${escapeHtml(value)}</textarea>
+        <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+    `;
+    list.appendChild(div);
+}
+
+// Add Custom Text Suggestion
+function addCustomTextSuggestion() {
+    addCustomTextSuggestionToList('', '', customTextPresetCount);
+}
+
+function addCustomTextSuggestionToList(name = '', value = '', index) {
+    const list = document.getElementById('customTextSuggestionsList');
+    const id = `text-suggestion-${index}`;
+    customTextPresetCount = Math.max(customTextPresetCount, index + 1);
+    
+    const div = document.createElement('div');
+    div.className = 'preset-item';
+    div.id = id;
+    div.innerHTML = `
+        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Bold)">
+        <input type="text" class="preset-value" placeholder="Text value (e.g., AWESOME!)" value="${escapeHtml(value)}">
+        <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+    `;
+    list.appendChild(div);
+}
+
 // Save Capture Settings
 async function saveCaptureSettings() {
     const statusDiv = document.getElementById('settingsStatus');
@@ -1127,12 +1190,14 @@ async function saveCaptureSettings() {
         const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
         const customTextMode = document.querySelector('input[name="customTextMode"]:checked').value;
         
+        const lockedPromptTitle = document.getElementById('lockedPromptTitle').value.trim();
         const lockedPromptValue = document.getElementById('lockedPromptValue').value.trim();
         const lockedCustomTextValue = document.getElementById('lockedCustomTextValue').value.trim();
         
-        // Gather prompt presets
+        // Gather prompt presets or suggestions
         const promptPresets = [];
-        document.querySelectorAll('#promptPresetsList .preset-item').forEach(item => {
+        const listSelector = promptMode === 'suggestions' ? '#promptSuggestionsList' : '#promptPresetsList';
+        document.querySelectorAll(`${listSelector} .preset-item`).forEach(item => {
             const name = item.querySelector('.preset-name').value.trim();
             const value = item.querySelector('.preset-value').value.trim();
             if (name && value) {
@@ -1140,9 +1205,10 @@ async function saveCaptureSettings() {
             }
         });
         
-        // Gather custom text presets
+        // Gather custom text presets or suggestions
         const customTextPresets = [];
-        document.querySelectorAll('#customTextPresetsList .preset-item').forEach(item => {
+        const textListSelector = customTextMode === 'suggestions' ? '#customTextSuggestionsList' : '#customTextPresetsList';
+        document.querySelectorAll(`${textListSelector} .preset-item`).forEach(item => {
             const name = item.querySelector('.preset-name').value.trim();
             const value = item.querySelector('.preset-value').value.trim();
             if (name && value) {
@@ -1151,11 +1217,19 @@ async function saveCaptureSettings() {
         });
         
         // Validate
-        if (promptMode === 'locked' && !lockedPromptValue) {
-            statusDiv.textContent = '⚠️ Locked prompt requires a value';
-            statusDiv.className = 'status-message error';
-            statusDiv.style.display = 'block';
-            return;
+        if (promptMode === 'locked') {
+            if (!lockedPromptTitle) {
+                statusDiv.textContent = '⚠️ Locked prompt requires a title';
+                statusDiv.className = 'status-message error';
+                statusDiv.style.display = 'block';
+                return;
+            }
+            if (!lockedPromptValue) {
+                statusDiv.textContent = '⚠️ Locked prompt requires a value';
+                statusDiv.className = 'status-message error';
+                statusDiv.style.display = 'block';
+                return;
+            }
         }
         
         if (customTextMode === 'locked' && !lockedCustomTextValue) {
@@ -1179,6 +1253,8 @@ async function saveCaptureSettings() {
             return;
         }
         
+        // Suggestions mode is flexible - no validation needed (can have 0+ suggestions)
+        
         const response = await fetch(`${API_BASE_URL}/capture-settings`, {
             method: 'PUT',
             headers: {
@@ -1187,6 +1263,7 @@ async function saveCaptureSettings() {
             },
             body: JSON.stringify({
                 promptMode,
+                lockedPromptTitle,
                 lockedPromptValue,
                 promptPresets,
                 customTextMode,
