@@ -928,3 +928,165 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// ===== CAPTURE SETTINGS =====
+
+let captureSettings = null;
+let presetOptionsCount = 0;
+
+// Load Capture Settings
+async function loadCaptureSettings() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/capture-settings`);
+        if (response.ok) {
+            captureSettings = await response.json();
+            displayCaptureSettings();
+        }
+    } catch (error) {
+        console.error('Error loading capture settings:', error);
+    }
+}
+
+// Display Capture Settings
+function displayCaptureSettings() {
+    if (!captureSettings) return;
+    
+    // Set mode radio button
+    const modeRadio = document.querySelector(`input[name="captureMode"][value="${captureSettings.mode}"]`);
+    if (modeRadio) {
+        modeRadio.checked = true;
+    }
+    
+    // Set locked mode fields
+    document.getElementById('lockedPrompt').value = captureSettings.lockedPrompt || '';
+    document.getElementById('lockedCustomText').value = captureSettings.lockedCustomText || '';
+    
+    // Display preset options
+    const list = document.getElementById('presetOptionsList');
+    list.innerHTML = '';
+    presetOptionsCount = 0;
+    
+    if (captureSettings.presetOptions && captureSettings.presetOptions.length > 0) {
+        captureSettings.presetOptions.forEach((option, index) => {
+            addPresetOptionToList(option.name, option.prompt, option.customText, index);
+        });
+    }
+    
+    // Update view based on mode
+    updateModeView();
+}
+
+// Update Mode View
+function updateModeView() {
+    const mode = document.querySelector('input[name="captureMode"]:checked').value;
+    
+    document.getElementById('lockedModeSettings').style.display = mode === 'locked' ? 'block' : 'none';
+    document.getElementById('presetModeSettings').style.display = mode === 'presets' ? 'block' : 'none';
+}
+
+// Add Preset Option
+function addPresetOption() {
+    addPresetOptionToList('', '', '', presetOptionsCount);
+}
+
+// Add Preset Option to List
+function addPresetOptionToList(name = '', prompt = '', customText = '', index) {
+    const list = document.getElementById('presetOptionsList');
+    const id = `preset-option-${index}`;
+    presetOptionsCount = Math.max(presetOptionsCount, index + 1);
+    
+    const div = document.createElement('div');
+    div.className = 'preset-option-item';
+    div.id = id;
+    div.innerHTML = `
+        <div class="preset-option-header">
+            <strong>Option ${index + 1}</strong>
+            <button onclick="removePresetOption('${id}')" class="btn-danger btn-sm">Remove</button>
+        </div>
+        <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" class="preset-option-name" value="${escapeHtml(name)}" placeholder="e.g., Astronaut">
+        </div>
+        <div class="form-group">
+            <label>Prompt</label>
+            <textarea class="preset-option-prompt" rows="2" placeholder="e.g., astronaut floating in space">${escapeHtml(prompt)}</textarea>
+        </div>
+        <div class="form-group">
+            <label>Custom Text</label>
+            <input type="text" class="preset-option-text" value="${escapeHtml(customText)}" placeholder="e.g., NASA">
+        </div>
+    `;
+    
+    list.appendChild(div);
+}
+
+// Remove Preset Option
+function removePresetOption(id) {
+    document.getElementById(id).remove();
+}
+
+// Save Capture Settings
+async function saveCaptureSettings() {
+    const mode = document.querySelector('input[name="captureMode"]:checked').value;
+    const lockedPrompt = document.getElementById('lockedPrompt').value.trim();
+    const lockedCustomText = document.getElementById('lockedCustomText').value.trim();
+    
+    // Gather preset options
+    const presetOptions = [];
+    document.querySelectorAll('.preset-option-item').forEach(item => {
+        const name = item.querySelector('.preset-option-name').value.trim();
+        const prompt = item.querySelector('.preset-option-prompt').value.trim();
+        const customText = item.querySelector('.preset-option-text').value.trim();
+        
+        if (name && prompt) {
+            presetOptions.push({ name, prompt, customText });
+        }
+    });
+    
+    // Validate
+    if (mode === 'locked' && !lockedPrompt) {
+        showStatus('Locked mode requires a prompt', 'error', 'settingsTab');
+        return;
+    }
+    
+    if (mode === 'presets' && presetOptions.length === 0) {
+        showStatus('Preset mode requires at least one option', 'error', 'settingsTab');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/capture-settings`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                mode,
+                lockedPrompt,
+                lockedCustomText,
+                presetOptions
+            })
+        });
+        
+        if (response.ok) {
+            captureSettings = await response.json();
+            showStatus('Settings saved! Capture page updated.', 'success', 'settingsTab');
+        } else {
+            const data = await response.json();
+            showStatus(data.error || 'Failed to save settings', 'error', 'settingsTab');
+        }
+    } catch (error) {
+        console.error('Error saving capture settings:', error);
+        showStatus('Failed to save settings', 'error', 'settingsTab');
+    }
+}
+
+// Load capture settings on tab switch
+const originalSwitchTab = switchTab;
+switchTab = function(tab) {
+    originalSwitchTab(tab);
+    if (tab === 'settings' && !captureSettings) {
+        loadCaptureSettings();
+    }
+};
+

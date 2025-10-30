@@ -49,6 +49,9 @@
                 <button class="tab-btn" onclick="switchTab('presets')">
                     Presets
                 </button>
+                <button class="tab-btn" onclick="switchTab('settings')">
+                    Capture Settings
+                </button>
             </div>
 
             <!-- Queue Tab -->
@@ -231,6 +234,73 @@
                             <p class="loading">Loading presets...</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Capture Settings Tab -->
+            <div id="settingsTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Capture Page Settings</h2>
+                </div>
+
+                <div class="settings-container">
+                    <div class="settings-mode">
+                        <h3>Capture Mode</h3>
+                        <p class="hint">Control how users enter prompts on the capture page</p>
+                        
+                        <div class="mode-options">
+                            <label class="mode-option">
+                                <input type="radio" name="captureMode" value="free" checked onchange="updateModeView()">
+                                <div class="mode-content">
+                                    <strong>Free Entry</strong>
+                                    <p>Users can type any prompt and custom text</p>
+                                </div>
+                            </label>
+
+                            <label class="mode-option">
+                                <input type="radio" name="captureMode" value="locked" onchange="updateModeView()">
+                                <div class="mode-content">
+                                    <strong>Locked Prompt</strong>
+                                    <p>Single prompt, users only enter name</p>
+                                </div>
+                            </label>
+
+                            <label class="mode-option">
+                                <input type="radio" name="captureMode" value="presets" onchange="updateModeView()">
+                                <div class="mode-content">
+                                    <strong>Preset Options</strong>
+                                    <p>Users select from predefined options</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Locked Mode Settings -->
+                    <div id="lockedModeSettings" class="mode-settings" style="display: none;">
+                        <h3>Locked Prompt Settings</h3>
+                        <div class="form-group">
+                            <label>Prompt</label>
+                            <textarea id="lockedPrompt" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Custom Text</label>
+                            <input type="text" id="lockedCustomText" placeholder="e.g., NASA">
+                        </div>
+                    </div>
+
+                    <!-- Preset Mode Settings -->
+                    <div id="presetModeSettings" class="mode-settings" style="display: none;">
+                        <h3>Preset Options</h3>
+                        <div class="preset-options-list" id="presetOptionsList">
+                            <!-- Dynamic preset options will be added here -->
+                        </div>
+                        <button onclick="addPresetOption()" class="btn-secondary">Add Option</button>
+                    </div>
+
+                    <button onclick="saveCaptureSettings()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                        Save Settings
+                    </button>
+                    <div id="settingsStatus" class="status-message"></div>
                 </div>
             </div>
         </main>

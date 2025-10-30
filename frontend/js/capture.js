@@ -132,10 +132,95 @@ function capturePhoto() {
     document.getElementById('photoPreview').src = photoData;
     showStep('form');
     
+    // Load capture settings and adapt form
+    loadCaptureSettings();
+    
     // Focus on name input
     setTimeout(() => {
         document.getElementById('nameInput').focus();
     }, 100);
+}
+
+// Load and apply capture settings
+async function loadCaptureSettings() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/capture-settings`);
+        if (response.ok) {
+            const settings = await response.json();
+            applyCaptureSettings(settings);
+        }
+    } catch (error) {
+        console.error('Error loading capture settings:', error);
+        // Default to free mode if error
+    }
+}
+
+// Apply capture settings to form
+function applyCaptureSettings(settings) {
+    const promptGroup = document.querySelector('#promptInput').closest('.form-group');
+    const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
+    
+    if (settings.mode === 'locked') {
+        // Locked mode: Hide inputs, use fixed values
+        promptGroup.style.display = 'none';
+        customTextGroup.style.display = 'none';
+        
+        // Store locked values (will be used on submit)
+        document.getElementById('promptInput').value = settings.lockedPrompt || '';
+        document.getElementById('customTextInput').value = settings.lockedCustomText || '';
+        
+    } else if (settings.mode === 'presets') {
+        // Preset mode: Show selection buttons
+        promptGroup.style.display = 'none';
+        customTextGroup.style.display = 'none';
+        
+        // Create preset selection UI
+        const presetsContainer = document.createElement('div');
+        presetsContainer.className = 'preset-selection';
+        presetsContainer.innerHTML = `
+            <div class="form-group">
+                <label><strong>Select Style</strong> <span class="required">*</span></label>
+                <div class="preset-buttons" id="presetButtons"></div>
+            </div>
+        `;
+        
+        // Insert before submit button
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.parentElement.insertBefore(presetsContainer, submitBtn);
+        
+        // Add preset buttons
+        const buttonsContainer = document.getElementById('presetButtons');
+        settings.presetOptions.forEach((preset, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'preset-btn';
+            button.textContent = preset.name;
+            button.onclick = () => selectPreset(index, settings.presetOptions);
+            buttonsContainer.appendChild(button);
+        });
+        
+    } else {
+        // Free mode: Show normal inputs (default)
+        promptGroup.style.display = 'flex';
+        customTextGroup.style.display = 'flex';
+    }
+}
+
+// Select preset option
+function selectPreset(index, presets) {
+    // Remove selected class from all buttons
+    document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('selected'));
+    
+    // Add selected class to clicked button
+    event.target.classList.add('selected');
+    
+    // Set hidden values
+    const preset = presets[index];
+    document.getElementById('promptInput').value = preset.prompt || '';
+    document.getElementById('customTextInput').value = preset.customText || '';
+    
+    // Validate form (enable submit if name and photo are present)
+    validateForm();
 }
 
 // Retake photo
@@ -185,8 +270,12 @@ function validateForm() {
     const name = document.getElementById('nameInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
     
+    // Check if prompt input is visible (free mode) or has value (locked/preset mode)
+    const promptGroup = document.querySelector('#promptInput').closest('.form-group');
+    const promptRequired = (promptGroup && promptGroup.style.display !== 'none') ? prompt : (prompt || true);
+    
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = !(name && prompt && photoData);
+    submitBtn.disabled = !(name && promptRequired && photoData);
 }
 
 // Add event listeners for form validation
