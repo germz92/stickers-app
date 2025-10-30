@@ -52,6 +52,37 @@ const presetSchema = new mongoose.Schema({
 
 const Preset = mongoose.model('Preset', presetSchema);
 
+// Capture Settings Schema
+const captureSettingsSchema = new mongoose.Schema({
+  // Prompt Configuration
+  promptMode: {
+    type: String,
+    enum: ['free', 'locked', 'presets'],
+    default: 'free'
+  },
+  lockedPromptValue: { type: String, default: '' },
+  promptPresets: [{
+    name: String,
+    value: String
+  }],
+  
+  // Custom Text Configuration
+  customTextMode: {
+    type: String,
+    enum: ['free', 'locked', 'presets'],
+    default: 'free'
+  },
+  lockedCustomTextValue: { type: String, default: '' },
+  customTextPresets: [{
+    name: String,
+    value: String
+  }],
+  
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const CaptureSettings = mongoose.model('CaptureSettings', captureSettingsSchema);
+
 // Authentication middleware
 const authenticateCapture = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -407,6 +438,65 @@ app.delete('/api/presets/:id', authenticateAdmin, async (req, res) => {
     }
     
     res.json({ message: 'Preset deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== CAPTURE SETTINGS ROUTES =====
+
+// Get capture settings (public - capture page needs this)
+app.get('/api/capture-settings', async (req, res) => {
+  try {
+    let settings = await CaptureSettings.findOne();
+    
+    if (!settings) {
+      // Create default settings
+      settings = await CaptureSettings.create({
+        mode: 'free',
+        lockedPrompt: '',
+        lockedCustomText: '',
+        presetOptions: []
+      });
+    }
+    
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update capture settings (admin only)
+app.put('/api/capture-settings', authenticateAdmin, async (req, res) => {
+  try {
+    const { 
+      promptMode, 
+      lockedPromptValue, 
+      promptPresets,
+      customTextMode,
+      lockedCustomTextValue,
+      customTextPresets
+    } = req.body;
+    
+    let settings = await CaptureSettings.findOne();
+    
+    if (!settings) {
+      settings = new CaptureSettings();
+    }
+    
+    settings.promptMode = promptMode || 'free';
+    settings.lockedPromptValue = lockedPromptValue || '';
+    settings.promptPresets = promptPresets || [];
+    
+    settings.customTextMode = customTextMode || 'free';
+    settings.lockedCustomTextValue = lockedCustomTextValue || '';
+    settings.customTextPresets = customTextPresets || [];
+    
+    settings.updatedAt = new Date();
+    
+    await settings.save();
+    
+    res.json(settings);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
