@@ -1,3 +1,5 @@
+require('dotenv').config(); // Load environment variables FIRST
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -5,7 +7,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const { uploadImageToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
-require('dotenv').config();
 
 const app = express();
 
