@@ -4,6 +4,8 @@ let currentSubmission = null;
 let currentImage = null;
 let allSubmissions = [];
 let presets = [];
+let pollInterval = null;
+let isPolling = false;
 
 // Check for existing token on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -45,6 +47,7 @@ async function login() {
             loadSubmissions();
             loadPresets();
             checkComfyUIStatus();
+            startPolling();
         } else {
             errorDiv.textContent = data.error || 'Invalid password';
             errorDiv.classList.add('show');
@@ -80,6 +83,7 @@ async function verifyToken() {
             loadSubmissions();
             loadPresets();
             checkComfyUIStatus();
+            startPolling();
         } else {
             localStorage.removeItem('adminToken');
             token = null;
@@ -115,7 +119,7 @@ function switchTab(tabName) {
 }
 
 // Load Submissions
-async function loadSubmissions() {
+async function loadSubmissions(silent = false) {
     try {
         const response = await fetch(`${API_BASE_URL}/submissions`, {
             headers: {
@@ -125,17 +129,51 @@ async function loadSubmissions() {
 
         if (!response.ok) throw new Error('Failed to load submissions');
 
-        allSubmissions = await response.json();
-        filterSubmissions();
+        const newSubmissions = await response.json();
         
-        // Update queue count
-        const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
-        document.getElementById('queueCount').textContent = pendingCount;
+        // Check if there are actual changes
+        const hasChanges = JSON.stringify(allSubmissions) !== JSON.stringify(newSubmissions);
+        
+        if (hasChanges || !silent) {
+            allSubmissions = newSubmissions;
+            filterSubmissions();
+            
+            // Update queue count
+            const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
+            document.getElementById('queueCount').textContent = pendingCount;
+        }
     } catch (error) {
-        console.error('Error loading submissions:', error);
-        document.getElementById('submissionsList').innerHTML = 
-            '<p class="error">Failed to load submissions. Please try again.</p>';
+        if (!silent) {
+            console.error('Error loading submissions:', error);
+            document.getElementById('submissionsList').innerHTML = 
+                '<p class="error">Failed to load submissions. Please try again.</p>';
+        }
     }
+}
+
+// Start auto-polling
+function startPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+    
+    isPolling = true;
+    
+    // Poll every 3 seconds
+    pollInterval = setInterval(() => {
+        if (isPolling && token) {
+            loadSubmissions(true); // Silent refresh
+        }
+    }, 3000);
+}
+
+// Stop polling
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+    isPolling = false;
 }
 
 // Filter Submissions
@@ -225,6 +263,13 @@ async function loadThumbnail(submissionId) {
 // Approve Submission
 async function approveSubmission(id) {
     try {
+        // Optimistic UI update
+        const submission = allSubmissions.find(s => s._id === id);
+        if (submission) {
+            submission.status = 'approved';
+            filterSubmissions();
+        }
+        
         const response = await fetch(`${API_BASE_URL}/submissions/${id}/status`, {
             method: 'PATCH',
             headers: {
@@ -235,11 +280,17 @@ async function approveSubmission(id) {
         });
 
         if (response.ok) {
-            loadSubmissions();
+            // Immediate refresh to sync with server
+            await loadSubmissions();
             showStatus('Submission approved!', 'success');
+        } else {
+            // Revert optimistic update on error
+            await loadSubmissions();
+            showStatus('Failed to approve submission', 'error');
         }
     } catch (error) {
         console.error('Error approving submission:', error);
+        await loadSubmissions();
         showStatus('Failed to approve submission', 'error');
     }
 }
@@ -249,6 +300,13 @@ async function rejectSubmission(id) {
     if (!confirm('Are you sure you want to reject this submission?')) return;
     
     try {
+        // Optimistic UI update
+        const submission = allSubmissions.find(s => s._id === id);
+        if (submission) {
+            submission.status = 'rejected';
+            filterSubmissions();
+        }
+        
         const response = await fetch(`${API_BASE_URL}/submissions/${id}/status`, {
             method: 'PATCH',
             headers: {
@@ -259,11 +317,17 @@ async function rejectSubmission(id) {
         });
 
         if (response.ok) {
-            loadSubmissions();
+            // Immediate refresh to sync with server
+            await loadSubmissions();
             showStatus('Submission rejected', 'info');
+        } else {
+            // Revert optimistic update on error
+            await loadSubmissions();
+            showStatus('Failed to reject submission', 'error');
         }
     } catch (error) {
         console.error('Error rejecting submission:', error);
+        await loadSubmissions();
         showStatus('Failed to reject submission', 'error');
     }
 }
@@ -273,6 +337,10 @@ async function deleteSubmission(id) {
     if (!confirm('Are you sure you want to delete this submission? This cannot be undone.')) return;
     
     try {
+        // Optimistic UI update
+        allSubmissions = allSubmissions.filter(s => s._id !== id);
+        filterSubmissions();
+        
         const response = await fetch(`${API_BASE_URL}/submissions/${id}`, {
             method: 'DELETE',
             headers: {
@@ -281,11 +349,17 @@ async function deleteSubmission(id) {
         });
 
         if (response.ok) {
-            loadSubmissions();
+            // Immediate refresh to sync with server
+            await loadSubmissions();
             showStatus('Submission deleted', 'info');
+        } else {
+            // Revert optimistic update on error
+            await loadSubmissions();
+            showStatus('Failed to delete submission', 'error');
         }
     } catch (error) {
         console.error('Error deleting submission:', error);
+        await loadSubmissions();
         showStatus('Failed to delete submission', 'error');
     }
 }
@@ -931,7 +1005,8 @@ function escapeHtml(text) {
 // ===== CAPTURE SETTINGS =====
 
 let captureSettings = null;
-let presetOptionsCount = 0;
+let promptPresetCount = 0;
+let customTextPresetCount = 0;
 
 // Load Capture Settings
 async function loadCaptureSettings() {
@@ -950,82 +1025,98 @@ async function loadCaptureSettings() {
 function displayCaptureSettings() {
     if (!captureSettings) return;
     
-    // Set mode radio button
-    const modeRadio = document.querySelector(`input[name="captureMode"][value="${captureSettings.mode}"]`);
-    if (modeRadio) {
-        modeRadio.checked = true;
+    // Set prompt mode
+    const promptModeRadio = document.querySelector(`input[name="promptMode"][value="${captureSettings.promptMode || 'free'}"]`);
+    if (promptModeRadio) {
+        promptModeRadio.checked = true;
     }
     
-    // Set locked mode checkboxes and fields
-    document.getElementById('lockPromptCheck').checked = captureSettings.lockPrompt || false;
-    document.getElementById('lockCustomTextCheck').checked = captureSettings.lockCustomText || false;
-    document.getElementById('lockedPrompt').value = captureSettings.lockedPrompt || '';
-    document.getElementById('lockedCustomText').value = captureSettings.lockedCustomText || '';
+    // Set custom text mode
+    const customTextModeRadio = document.querySelector(`input[name="customTextMode"][value="${captureSettings.customTextMode || 'free'}"]`);
+    if (customTextModeRadio) {
+        customTextModeRadio.checked = true;
+    }
     
-    // Display preset options
-    const list = document.getElementById('presetOptionsList');
-    list.innerHTML = '';
-    presetOptionsCount = 0;
+    // Set locked values
+    document.getElementById('lockedPromptValue').value = captureSettings.lockedPromptValue || '';
+    document.getElementById('lockedCustomTextValue').value = captureSettings.lockedCustomTextValue || '';
     
-    if (captureSettings.presetOptions && captureSettings.presetOptions.length > 0) {
-        captureSettings.presetOptions.forEach((option, index) => {
-            addPresetOptionToList(option.name, option.prompt, option.customText, index);
+    // Display prompt presets
+    const promptList = document.getElementById('promptPresetsList');
+    promptList.innerHTML = '';
+    promptPresetCount = 0;
+    if (captureSettings.promptPresets && captureSettings.promptPresets.length > 0) {
+        captureSettings.promptPresets.forEach((preset, index) => {
+            addPromptPresetToList(preset.name, preset.value, index);
         });
     }
     
-    // Update view based on mode
-    updateModeView();
-}
-
-// Update Mode View
-function updateModeView() {
-    const mode = document.querySelector('input[name="captureMode"]:checked').value;
+    // Display custom text presets
+    const textList = document.getElementById('customTextPresetsList');
+    textList.innerHTML = '';
+    customTextPresetCount = 0;
+    if (captureSettings.customTextPresets && captureSettings.customTextPresets.length > 0) {
+        captureSettings.customTextPresets.forEach((preset, index) => {
+            addCustomTextPresetToList(preset.name, preset.value, index);
+        });
+    }
     
-    document.getElementById('lockedModeSettings').style.display = mode === 'locked' ? 'block' : 'none';
-    document.getElementById('presetModeSettings').style.display = mode === 'presets' ? 'block' : 'none';
+    // Update view
+    updateSettingsView();
 }
 
-// Add Preset Option
-function addPresetOption() {
-    addPresetOptionToList('', '', '', presetOptionsCount);
+// Update Settings View
+function updateSettingsView() {
+    const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
+    const customTextMode = document.querySelector('input[name="customTextMode"]:checked').value;
+    
+    document.getElementById('lockedPromptSettings').style.display = promptMode === 'locked' ? 'block' : 'none';
+    document.getElementById('promptPresetsSettings').style.display = promptMode === 'presets' ? 'block' : 'none';
+    
+    document.getElementById('lockedCustomTextSettings').style.display = customTextMode === 'locked' ? 'block' : 'none';
+    document.getElementById('customTextPresetsSettings').style.display = customTextMode === 'presets' ? 'block' : 'none';
 }
 
-// Add Preset Option to List
-function addPresetOptionToList(name = '', prompt = '', customText = '', index) {
-    const list = document.getElementById('presetOptionsList');
-    const id = `preset-option-${index}`;
-    presetOptionsCount = Math.max(presetOptionsCount, index + 1);
+// Add Prompt Preset
+function addPromptPreset() {
+    addPromptPresetToList('', '', promptPresetCount);
+}
+
+function addPromptPresetToList(name = '', value = '', index) {
+    const list = document.getElementById('promptPresetsList');
+    const id = `prompt-preset-${index}`;
+    promptPresetCount = Math.max(promptPresetCount, index + 1);
     
     const div = document.createElement('div');
-    div.className = 'preset-option-item';
+    div.className = 'preset-item';
     div.id = id;
     div.innerHTML = `
-        <div class="preset-option-header">
-            <strong>Option ${index + 1}</strong>
-            <button onclick="removePresetOption('${id}')" class="btn-danger btn-sm">Remove</button>
-        </div>
-        <div class="form-group">
-            <label>Display Name <span class="required">*</span></label>
-            <input type="text" class="preset-option-name" value="${escapeHtml(name)}" placeholder="e.g., Astronaut">
-        </div>
-        <div class="form-group">
-            <label>Prompt</label>
-            <textarea class="preset-option-prompt" rows="2" placeholder="e.g., astronaut floating in space">${escapeHtml(prompt)}</textarea>
-            <div class="hint">Optional - leave empty if users should enter their own</div>
-        </div>
-        <div class="form-group">
-            <label>Custom Text</label>
-            <input type="text" class="preset-option-text" value="${escapeHtml(customText)}" placeholder="e.g., NASA">
-            <div class="hint">Optional - leave empty if users should enter their own</div>
-        </div>
+        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Astronaut)">
+        <textarea class="preset-value" rows="1" placeholder="Prompt value (e.g., astronaut floating in space)">${escapeHtml(value)}</textarea>
+        <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
     `;
-    
     list.appendChild(div);
 }
 
-// Remove Preset Option
-function removePresetOption(id) {
-    document.getElementById(id).remove();
+// Add Custom Text Preset
+function addCustomTextPreset() {
+    addCustomTextPresetToList('', '', customTextPresetCount);
+}
+
+function addCustomTextPresetToList(name = '', value = '', index) {
+    const list = document.getElementById('customTextPresetsList');
+    const id = `text-preset-${index}`;
+    customTextPresetCount = Math.max(customTextPresetCount, index + 1);
+    
+    const div = document.createElement('div');
+    div.className = 'preset-item';
+    div.id = id;
+    div.innerHTML = `
+        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Bold)">
+        <input type="text" class="preset-value" placeholder="Text value (e.g., AWESOME!)" value="${escapeHtml(value)}">
+        <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+    `;
+    list.appendChild(div);
 }
 
 // Save Capture Settings
@@ -1033,48 +1124,56 @@ async function saveCaptureSettings() {
     const statusDiv = document.getElementById('settingsStatus');
     
     try {
-        const mode = document.querySelector('input[name="captureMode"]:checked').value;
-        const lockPrompt = document.getElementById('lockPromptCheck').checked;
-        const lockCustomText = document.getElementById('lockCustomTextCheck').checked;
-        const lockedPrompt = document.getElementById('lockedPrompt').value.trim();
-        const lockedCustomText = document.getElementById('lockedCustomText').value.trim();
+        const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
+        const customTextMode = document.querySelector('input[name="customTextMode"]:checked').value;
         
-        // Gather preset options
-        const presetOptions = [];
-        document.querySelectorAll('.preset-option-item').forEach(item => {
-            const name = item.querySelector('.preset-option-name').value.trim();
-            const prompt = item.querySelector('.preset-option-prompt').value.trim();
-            const customText = item.querySelector('.preset-option-text').value.trim();
-            
-            if (name) {
-                presetOptions.push({ name, prompt, customText });
+        const lockedPromptValue = document.getElementById('lockedPromptValue').value.trim();
+        const lockedCustomTextValue = document.getElementById('lockedCustomTextValue').value.trim();
+        
+        // Gather prompt presets
+        const promptPresets = [];
+        document.querySelectorAll('#promptPresetsList .preset-item').forEach(item => {
+            const name = item.querySelector('.preset-name').value.trim();
+            const value = item.querySelector('.preset-value').value.trim();
+            if (name && value) {
+                promptPresets.push({ name, value });
+            }
+        });
+        
+        // Gather custom text presets
+        const customTextPresets = [];
+        document.querySelectorAll('#customTextPresetsList .preset-item').forEach(item => {
+            const name = item.querySelector('.preset-name').value.trim();
+            const value = item.querySelector('.preset-value').value.trim();
+            if (name && value) {
+                customTextPresets.push({ name, value });
             }
         });
         
         // Validate
-        if (mode === 'locked') {
-            if (lockPrompt && !lockedPrompt) {
-                statusDiv.textContent = '⚠️ Lock Prompt is checked but no prompt value provided';
-                statusDiv.className = 'status-message error';
-                statusDiv.style.display = 'block';
-                return;
-            }
-            if (lockCustomText && !lockedCustomText) {
-                statusDiv.textContent = '⚠️ Lock Custom Text is checked but no value provided';
-                statusDiv.className = 'status-message error';
-                statusDiv.style.display = 'block';
-                return;
-            }
-            if (!lockPrompt && !lockCustomText) {
-                statusDiv.textContent = '⚠️ Locked mode requires at least one field to be locked';
-                statusDiv.className = 'status-message error';
-                statusDiv.style.display = 'block';
-                return;
-            }
+        if (promptMode === 'locked' && !lockedPromptValue) {
+            statusDiv.textContent = '⚠️ Locked prompt requires a value';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+            return;
         }
         
-        if (mode === 'presets' && presetOptions.length === 0) {
-            statusDiv.textContent = '⚠️ Preset mode requires at least one option';
+        if (customTextMode === 'locked' && !lockedCustomTextValue) {
+            statusDiv.textContent = '⚠️ Locked custom text requires a value';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+            return;
+        }
+        
+        if (promptMode === 'presets' && promptPresets.length === 0) {
+            statusDiv.textContent = '⚠️ Preset mode requires at least one prompt option';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+            return;
+        }
+        
+        if (customTextMode === 'presets' && customTextPresets.length === 0) {
+            statusDiv.textContent = '⚠️ Preset mode requires at least one text option';
             statusDiv.className = 'status-message error';
             statusDiv.style.display = 'block';
             return;
@@ -1087,12 +1186,12 @@ async function saveCaptureSettings() {
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-                mode,
-                lockPrompt,
-                lockCustomText,
-                lockedPrompt,
-                lockedCustomText,
-                presetOptions
+                promptMode,
+                lockedPromptValue,
+                promptPresets,
+                customTextMode,
+                lockedCustomTextValue,
+                customTextPresets
             })
         });
         
@@ -1102,7 +1201,6 @@ async function saveCaptureSettings() {
             statusDiv.className = 'status-message success';
             statusDiv.style.display = 'block';
             
-            // Hide after 3 seconds
             setTimeout(() => {
                 statusDiv.style.display = 'none';
             }, 3000);

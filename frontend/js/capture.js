@@ -161,110 +161,108 @@ function applyCaptureSettings(settings) {
     const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
     const promptInput = document.getElementById('promptInput');
     const customTextInput = document.getElementById('customTextInput');
+    const submitBtn = document.getElementById('submitBtn');
     
-    // Remove any existing preset selection
-    const existingPresets = document.querySelector('.preset-selection');
-    if (existingPresets) {
-        existingPresets.remove();
-    }
+    // Remove any existing preset selections
+    document.querySelectorAll('.preset-selection').forEach(el => el.remove());
     
-    if (settings.mode === 'locked') {
-        // Locked mode: Show/hide fields based on what's locked
-        
-        if (settings.lockPrompt) {
-            promptGroup.style.display = 'none';
-            promptInput.value = settings.lockedPrompt || '';
-            promptInput.readOnly = true;
-        } else {
-            promptGroup.style.display = 'flex';
-            promptInput.readOnly = false;
-        }
-        
-        if (settings.lockCustomText) {
-            customTextGroup.style.display = 'none';
-            customTextInput.value = settings.lockedCustomText || '';
-            customTextInput.readOnly = true;
-        } else {
-            customTextGroup.style.display = 'flex';
-            customTextInput.readOnly = false;
-        }
-        
-    } else if (settings.mode === 'presets') {
-        // Preset mode: Hide inputs, show selection buttons
+    // Handle Prompt Settings
+    if (settings.promptMode === 'locked') {
+        // Lock prompt
         promptGroup.style.display = 'none';
-        customTextGroup.style.display = 'none';
+        promptInput.value = settings.lockedPromptValue || '';
+        promptInput.readOnly = true;
         
-        // Create preset selection UI
+    } else if (settings.promptMode === 'presets') {
+        // Show prompt presets
+        promptGroup.style.display = 'none';
+        
         const presetsContainer = document.createElement('div');
         presetsContainer.className = 'preset-selection';
         presetsContainer.innerHTML = `
             <div class="form-group">
-                <label><strong>Select Style</strong> <span class="required">*</span></label>
-                <div class="preset-buttons" id="presetButtons"></div>
+                <label><strong>Select Prompt</strong> <span class="required">*</span></label>
+                <div class="preset-buttons" id="promptPresetButtons"></div>
             </div>
         `;
         
-        // Insert before submit button
-        const submitBtn = document.getElementById('submitBtn');
         submitBtn.parentElement.insertBefore(presetsContainer, submitBtn);
         
-        // Add preset buttons
-        const buttonsContainer = document.getElementById('presetButtons');
-        settings.presetOptions.forEach((preset, index) => {
+        const buttonsContainer = document.getElementById('promptPresetButtons');
+        settings.promptPresets.forEach((preset, index) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'preset-btn';
             button.textContent = preset.name;
-            button.onclick = () => selectPreset(index, settings.presetOptions);
+            button.onclick = () => selectPromptPreset(index, settings.promptPresets);
             buttonsContainer.appendChild(button);
         });
         
     } else {
-        // Free mode: Show all inputs (default)
+        // Free entry
         promptGroup.style.display = 'flex';
-        customTextGroup.style.display = 'flex';
         promptInput.readOnly = false;
-        customTextInput.readOnly = false;
+        promptInput.value = '';
     }
     
-    // Re-validate form after applying settings
+    // Handle Custom Text Settings
+    if (settings.customTextMode === 'locked') {
+        // Lock custom text
+        customTextGroup.style.display = 'none';
+        customTextInput.value = settings.lockedCustomTextValue || '';
+        customTextInput.readOnly = true;
+        
+    } else if (settings.customTextMode === 'presets') {
+        // Show custom text presets
+        customTextGroup.style.display = 'none';
+        
+        const presetsContainer = document.createElement('div');
+        presetsContainer.className = 'preset-selection';
+        presetsContainer.innerHTML = `
+            <div class="form-group">
+                <label><strong>Select Text</strong> <span class="required">*</span></label>
+                <div class="preset-buttons" id="customTextPresetButtons"></div>
+            </div>
+        `;
+        
+        submitBtn.parentElement.insertBefore(presetsContainer, submitBtn);
+        
+        const buttonsContainer = document.getElementById('customTextPresetButtons');
+        settings.customTextPresets.forEach((preset, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'preset-btn';
+            button.textContent = preset.name;
+            button.onclick = () => selectCustomTextPreset(index, settings.customTextPresets);
+            buttonsContainer.appendChild(button);
+        });
+        
+    } else {
+        // Free entry
+        customTextGroup.style.display = 'flex';
+        customTextInput.readOnly = false;
+        customTextInput.value = '';
+    }
+    
+    // Re-validate form
     validateForm();
 }
 
-// Select preset option
-function selectPreset(index, presets) {
-    // Remove selected class from all buttons
-    document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('selected'));
-    
-    // Add selected class to clicked button
+// Select prompt preset
+function selectPromptPreset(index, presets) {
+    document.querySelectorAll('#promptPresetButtons .preset-btn').forEach(btn => btn.classList.remove('selected'));
     event.target.classList.add('selected');
     
-    // Set values
-    const preset = presets[index];
-    const promptInput = document.getElementById('promptInput');
-    const customTextInput = document.getElementById('customTextInput');
-    const promptGroup = document.querySelector('#promptInput').closest('.form-group');
-    const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
+    document.getElementById('promptInput').value = presets[index].value;
+    validateForm();
+}
+
+// Select custom text preset
+function selectCustomTextPreset(index, presets) {
+    document.querySelectorAll('#customTextPresetButtons .preset-btn').forEach(btn => btn.classList.remove('selected'));
+    event.target.classList.add('selected');
     
-    // If preset has prompt, lock it; otherwise show input
-    if (preset.prompt) {
-        promptInput.value = preset.prompt;
-        promptGroup.style.display = 'none';
-    } else {
-        promptInput.value = '';
-        promptGroup.style.display = 'flex';
-    }
-    
-    // If preset has custom text, lock it; otherwise show input
-    if (preset.customText) {
-        customTextInput.value = preset.customText;
-        customTextGroup.style.display = 'none';
-    } else {
-        customTextInput.value = '';
-        customTextGroup.style.display = 'flex';
-    }
-    
-    // Validate form
+    document.getElementById('customTextInput').value = presets[index].value;
     validateForm();
 }
 
@@ -314,18 +312,12 @@ function showStep(step) {
 function validateForm() {
     const name = document.getElementById('nameInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
-    const promptGroup = document.querySelector('#promptInput').closest('.form-group');
+    const customText = document.getElementById('customTextInput').value.trim();
     
-    // Check if prompt is required and filled
-    let promptValid = true;
-    if (promptGroup && promptGroup.style.display !== 'none') {
-        // Prompt field is visible, must be filled
-        promptValid = !!prompt;
-    } else {
-        // Prompt field is hidden (locked or presets), check if value exists
-        promptValid = !!prompt;
-    }
+    // Prompt is always required (either free entry, locked, or selected from presets)
+    const promptValid = !!prompt;
     
+    // Custom text is optional by default
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = !(name && promptValid && photoData);
 }

@@ -57,9 +57,15 @@
             <!-- Queue Tab -->
             <div id="queueTab" class="tab-content active">
                 <div class="section-header">
-                    <h2>Submission Queue</h2>
+                    <div>
+                        <h2>Submission Queue</h2>
+                        <div id="autoRefreshIndicator" class="auto-refresh-indicator">
+                            <span class="pulse-dot"></span>
+                            Auto-refresh active
+                        </div>
+                    </div>
                     <button onclick="loadSubmissions()" class="btn-secondary">
-                        Refresh
+                        Refresh Now
                     </button>
                 </div>
 
@@ -241,76 +247,86 @@
             <div id="settingsTab" class="tab-content">
                 <div class="section-header">
                     <h2>Capture Page Settings</h2>
+                    <p class="hint">Configure how users enter prompt and custom text independently</p>
                 </div>
 
                 <div class="settings-container">
-                    <div class="settings-mode">
-                        <h3>Capture Mode</h3>
-                        <p class="hint">Control how users enter prompts on the capture page</p>
+                    <!-- Prompt Settings -->
+                    <div class="settings-section">
+                        <h3>Prompt Settings</h3>
                         
-                        <div class="mode-options">
-                            <label class="mode-option">
-                                <input type="radio" name="captureMode" value="free" checked onchange="updateModeView()">
-                                <div class="mode-content">
-                                    <strong>Free Entry</strong>
-                                    <p>Users can type any prompt and custom text</p>
-                                </div>
+                        <div class="field-mode-selector">
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="free" checked onchange="updateSettingsView()">
+                                <span>Free Entry</span>
+                                <div class="mode-desc">Users type their own prompt</div>
                             </label>
 
-                            <label class="mode-option">
-                                <input type="radio" name="captureMode" value="locked" onchange="updateModeView()">
-                                <div class="mode-content">
-                                    <strong>Locked Prompt</strong>
-                                    <p>Single prompt, users only enter name</p>
-                                </div>
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="locked" onchange="updateSettingsView()">
+                                <span>Locked</span>
+                                <div class="mode-desc">Single fixed prompt</div>
                             </label>
 
-                            <label class="mode-option">
-                                <input type="radio" name="captureMode" value="presets" onchange="updateModeView()">
-                                <div class="mode-content">
-                                    <strong>Preset Options</strong>
-                                    <p>Users select from predefined options</p>
-                                </div>
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="presets" onchange="updateSettingsView()">
+                                <span>Presets</span>
+                                <div class="mode-desc">Multiple choice buttons</div>
                             </label>
+                        </div>
+
+                        <!-- Locked Prompt -->
+                        <div id="lockedPromptSettings" class="field-settings" style="display: none;">
+                            <div class="form-group">
+                                <label>Locked Prompt Value <span class="required">*</span></label>
+                                <textarea id="lockedPromptValue" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Prompt Presets -->
+                        <div id="promptPresetsSettings" class="field-settings" style="display: none;">
+                            <div class="presets-list" id="promptPresetsList"></div>
+                            <button onclick="addPromptPreset()" class="btn-secondary btn-sm">Add Prompt Option</button>
                         </div>
                     </div>
 
-                    <!-- Locked Mode Settings -->
-                    <div id="lockedModeSettings" class="mode-settings" style="display: none;">
-                        <h3>Locked Fields</h3>
-                        <p class="hint">Choose which fields to lock (users can't change locked fields)</p>
+                    <!-- Custom Text Settings -->
+                    <div class="settings-section">
+                        <h3>Custom Text Settings</h3>
                         
-                        <div class="lock-options">
-                            <label class="checkbox-option">
-                                <input type="checkbox" id="lockPromptCheck">
-                                <span>Lock Prompt</span>
+                        <div class="field-mode-selector">
+                            <label class="mode-radio">
+                                <input type="radio" name="customTextMode" value="free" checked onchange="updateSettingsView()">
+                                <span>Free Entry</span>
+                                <div class="mode-desc">Users type their own text</div>
                             </label>
-                            <label class="checkbox-option">
-                                <input type="checkbox" id="lockCustomTextCheck">
-                                <span>Lock Custom Text</span>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="customTextMode" value="locked" onchange="updateSettingsView()">
+                                <span>Locked</span>
+                                <div class="mode-desc">Single fixed text</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="customTextMode" value="presets" onchange="updateSettingsView()">
+                                <span>Presets</span>
+                                <div class="mode-desc">Multiple choice buttons</div>
                             </label>
                         </div>
 
-                        <div class="form-group">
-                            <label>Locked Prompt Value</label>
-                            <textarea id="lockedPrompt" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
-                            <div class="hint">Leave empty if not locking prompt</div>
+                        <!-- Locked Custom Text -->
+                        <div id="lockedCustomTextSettings" class="field-settings" style="display: none;">
+                            <div class="form-group">
+                                <label>Locked Custom Text Value <span class="required">*</span></label>
+                                <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA">
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Locked Custom Text Value</label>
-                            <input type="text" id="lockedCustomText" placeholder="e.g., NASA">
-                            <div class="hint">Leave empty if not locking custom text</div>
-                        </div>
-                    </div>
 
-                    <!-- Preset Mode Settings -->
-                    <div id="presetModeSettings" class="mode-settings" style="display: none;">
-                        <h3>Preset Options</h3>
-                        <p class="hint">Create style buttons for users to choose from. Each option can have prompt, custom text, or both.</p>
-                        <div class="preset-options-list" id="presetOptionsList">
-                            <!-- Dynamic preset options will be added here -->
+                        <!-- Custom Text Presets -->
+                        <div id="customTextPresetsSettings" class="field-settings" style="display: none;">
+                            <div class="presets-list" id="customTextPresetsList"></div>
+                            <button onclick="addCustomTextPreset()" class="btn-secondary btn-sm">Add Text Option</button>
                         </div>
-                        <button onclick="addPresetOption()" class="btn-secondary">Add Option</button>
                     </div>
 
                     <button onclick="saveCaptureSettings()" class="btn-primary" style="width: 100%; margin-top: 20px;">
