@@ -277,20 +277,36 @@
 
                     <!-- Locked Mode Settings -->
                     <div id="lockedModeSettings" class="mode-settings" style="display: none;">
-                        <h3>Locked Prompt Settings</h3>
+                        <h3>Locked Fields</h3>
+                        <p class="hint">Choose which fields to lock (users can't change locked fields)</p>
+                        
+                        <div class="lock-options">
+                            <label class="checkbox-option">
+                                <input type="checkbox" id="lockPromptCheck">
+                                <span>Lock Prompt</span>
+                            </label>
+                            <label class="checkbox-option">
+                                <input type="checkbox" id="lockCustomTextCheck">
+                                <span>Lock Custom Text</span>
+                            </label>
+                        </div>
+
                         <div class="form-group">
-                            <label>Prompt</label>
+                            <label>Locked Prompt Value</label>
                             <textarea id="lockedPrompt" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
+                            <div class="hint">Leave empty if not locking prompt</div>
                         </div>
                         <div class="form-group">
-                            <label>Custom Text</label>
+                            <label>Locked Custom Text Value</label>
                             <input type="text" id="lockedCustomText" placeholder="e.g., NASA">
+                            <div class="hint">Leave empty if not locking custom text</div>
                         </div>
                     </div>
 
                     <!-- Preset Mode Settings -->
                     <div id="presetModeSettings" class="mode-settings" style="display: none;">
                         <h3>Preset Options</h3>
+                        <p class="hint">Create style buttons for users to choose from. Each option can have prompt, custom text, or both.</p>
                         <div class="preset-options-list" id="presetOptionsList">
                             <!-- Dynamic preset options will be added here -->
                         </div>

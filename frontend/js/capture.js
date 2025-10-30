@@ -159,18 +159,38 @@ async function loadCaptureSettings() {
 function applyCaptureSettings(settings) {
     const promptGroup = document.querySelector('#promptInput').closest('.form-group');
     const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
+    const promptInput = document.getElementById('promptInput');
+    const customTextInput = document.getElementById('customTextInput');
+    
+    // Remove any existing preset selection
+    const existingPresets = document.querySelector('.preset-selection');
+    if (existingPresets) {
+        existingPresets.remove();
+    }
     
     if (settings.mode === 'locked') {
-        // Locked mode: Hide inputs, use fixed values
-        promptGroup.style.display = 'none';
-        customTextGroup.style.display = 'none';
+        // Locked mode: Show/hide fields based on what's locked
         
-        // Store locked values (will be used on submit)
-        document.getElementById('promptInput').value = settings.lockedPrompt || '';
-        document.getElementById('customTextInput').value = settings.lockedCustomText || '';
+        if (settings.lockPrompt) {
+            promptGroup.style.display = 'none';
+            promptInput.value = settings.lockedPrompt || '';
+            promptInput.readOnly = true;
+        } else {
+            promptGroup.style.display = 'flex';
+            promptInput.readOnly = false;
+        }
+        
+        if (settings.lockCustomText) {
+            customTextGroup.style.display = 'none';
+            customTextInput.value = settings.lockedCustomText || '';
+            customTextInput.readOnly = true;
+        } else {
+            customTextGroup.style.display = 'flex';
+            customTextInput.readOnly = false;
+        }
         
     } else if (settings.mode === 'presets') {
-        // Preset mode: Show selection buttons
+        // Preset mode: Hide inputs, show selection buttons
         promptGroup.style.display = 'none';
         customTextGroup.style.display = 'none';
         
@@ -200,10 +220,15 @@ function applyCaptureSettings(settings) {
         });
         
     } else {
-        // Free mode: Show normal inputs (default)
+        // Free mode: Show all inputs (default)
         promptGroup.style.display = 'flex';
         customTextGroup.style.display = 'flex';
+        promptInput.readOnly = false;
+        customTextInput.readOnly = false;
     }
+    
+    // Re-validate form after applying settings
+    validateForm();
 }
 
 // Select preset option
@@ -214,12 +239,32 @@ function selectPreset(index, presets) {
     // Add selected class to clicked button
     event.target.classList.add('selected');
     
-    // Set hidden values
+    // Set values
     const preset = presets[index];
-    document.getElementById('promptInput').value = preset.prompt || '';
-    document.getElementById('customTextInput').value = preset.customText || '';
+    const promptInput = document.getElementById('promptInput');
+    const customTextInput = document.getElementById('customTextInput');
+    const promptGroup = document.querySelector('#promptInput').closest('.form-group');
+    const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
     
-    // Validate form (enable submit if name and photo are present)
+    // If preset has prompt, lock it; otherwise show input
+    if (preset.prompt) {
+        promptInput.value = preset.prompt;
+        promptGroup.style.display = 'none';
+    } else {
+        promptInput.value = '';
+        promptGroup.style.display = 'flex';
+    }
+    
+    // If preset has custom text, lock it; otherwise show input
+    if (preset.customText) {
+        customTextInput.value = preset.customText;
+        customTextGroup.style.display = 'none';
+    } else {
+        customTextInput.value = '';
+        customTextGroup.style.display = 'flex';
+    }
+    
+    // Validate form
     validateForm();
 }
 
@@ -269,13 +314,20 @@ function showStep(step) {
 function validateForm() {
     const name = document.getElementById('nameInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
-    
-    // Check if prompt input is visible (free mode) or has value (locked/preset mode)
     const promptGroup = document.querySelector('#promptInput').closest('.form-group');
-    const promptRequired = (promptGroup && promptGroup.style.display !== 'none') ? prompt : (prompt || true);
+    
+    // Check if prompt is required and filled
+    let promptValid = true;
+    if (promptGroup && promptGroup.style.display !== 'none') {
+        // Prompt field is visible, must be filled
+        promptValid = !!prompt;
+    } else {
+        // Prompt field is hidden (locked or presets), check if value exists
+        promptValid = !!prompt;
+    }
     
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = !(name && promptRequired && photoData);
+    submitBtn.disabled = !(name && promptValid && photoData);
 }
 
 // Add event listeners for form validation

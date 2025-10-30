@@ -956,7 +956,9 @@ function displayCaptureSettings() {
         modeRadio.checked = true;
     }
     
-    // Set locked mode fields
+    // Set locked mode checkboxes and fields
+    document.getElementById('lockPromptCheck').checked = captureSettings.lockPrompt || false;
+    document.getElementById('lockCustomTextCheck').checked = captureSettings.lockCustomText || false;
     document.getElementById('lockedPrompt').value = captureSettings.lockedPrompt || '';
     document.getElementById('lockedCustomText').value = captureSettings.lockedCustomText || '';
     
@@ -1003,16 +1005,18 @@ function addPresetOptionToList(name = '', prompt = '', customText = '', index) {
             <button onclick="removePresetOption('${id}')" class="btn-danger btn-sm">Remove</button>
         </div>
         <div class="form-group">
-            <label>Display Name</label>
+            <label>Display Name <span class="required">*</span></label>
             <input type="text" class="preset-option-name" value="${escapeHtml(name)}" placeholder="e.g., Astronaut">
         </div>
         <div class="form-group">
             <label>Prompt</label>
             <textarea class="preset-option-prompt" rows="2" placeholder="e.g., astronaut floating in space">${escapeHtml(prompt)}</textarea>
+            <div class="hint">Optional - leave empty if users should enter their own</div>
         </div>
         <div class="form-group">
             <label>Custom Text</label>
             <input type="text" class="preset-option-text" value="${escapeHtml(customText)}" placeholder="e.g., NASA">
+            <div class="hint">Optional - leave empty if users should enter their own</div>
         </div>
     `;
     
@@ -1026,34 +1030,56 @@ function removePresetOption(id) {
 
 // Save Capture Settings
 async function saveCaptureSettings() {
-    const mode = document.querySelector('input[name="captureMode"]:checked').value;
-    const lockedPrompt = document.getElementById('lockedPrompt').value.trim();
-    const lockedCustomText = document.getElementById('lockedCustomText').value.trim();
-    
-    // Gather preset options
-    const presetOptions = [];
-    document.querySelectorAll('.preset-option-item').forEach(item => {
-        const name = item.querySelector('.preset-option-name').value.trim();
-        const prompt = item.querySelector('.preset-option-prompt').value.trim();
-        const customText = item.querySelector('.preset-option-text').value.trim();
-        
-        if (name && prompt) {
-            presetOptions.push({ name, prompt, customText });
-        }
-    });
-    
-    // Validate
-    if (mode === 'locked' && !lockedPrompt) {
-        showStatus('Locked mode requires a prompt', 'error', 'settingsTab');
-        return;
-    }
-    
-    if (mode === 'presets' && presetOptions.length === 0) {
-        showStatus('Preset mode requires at least one option', 'error', 'settingsTab');
-        return;
-    }
+    const statusDiv = document.getElementById('settingsStatus');
     
     try {
+        const mode = document.querySelector('input[name="captureMode"]:checked').value;
+        const lockPrompt = document.getElementById('lockPromptCheck').checked;
+        const lockCustomText = document.getElementById('lockCustomTextCheck').checked;
+        const lockedPrompt = document.getElementById('lockedPrompt').value.trim();
+        const lockedCustomText = document.getElementById('lockedCustomText').value.trim();
+        
+        // Gather preset options
+        const presetOptions = [];
+        document.querySelectorAll('.preset-option-item').forEach(item => {
+            const name = item.querySelector('.preset-option-name').value.trim();
+            const prompt = item.querySelector('.preset-option-prompt').value.trim();
+            const customText = item.querySelector('.preset-option-text').value.trim();
+            
+            if (name) {
+                presetOptions.push({ name, prompt, customText });
+            }
+        });
+        
+        // Validate
+        if (mode === 'locked') {
+            if (lockPrompt && !lockedPrompt) {
+                statusDiv.textContent = '⚠️ Lock Prompt is checked but no prompt value provided';
+                statusDiv.className = 'status-message error';
+                statusDiv.style.display = 'block';
+                return;
+            }
+            if (lockCustomText && !lockedCustomText) {
+                statusDiv.textContent = '⚠️ Lock Custom Text is checked but no value provided';
+                statusDiv.className = 'status-message error';
+                statusDiv.style.display = 'block';
+                return;
+            }
+            if (!lockPrompt && !lockCustomText) {
+                statusDiv.textContent = '⚠️ Locked mode requires at least one field to be locked';
+                statusDiv.className = 'status-message error';
+                statusDiv.style.display = 'block';
+                return;
+            }
+        }
+        
+        if (mode === 'presets' && presetOptions.length === 0) {
+            statusDiv.textContent = '⚠️ Preset mode requires at least one option';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+            return;
+        }
+        
         const response = await fetch(`${API_BASE_URL}/capture-settings`, {
             method: 'PUT',
             headers: {
@@ -1062,6 +1088,8 @@ async function saveCaptureSettings() {
             },
             body: JSON.stringify({
                 mode,
+                lockPrompt,
+                lockCustomText,
                 lockedPrompt,
                 lockedCustomText,
                 presetOptions
@@ -1070,14 +1098,25 @@ async function saveCaptureSettings() {
         
         if (response.ok) {
             captureSettings = await response.json();
-            showStatus('Settings saved! Capture page updated.', 'success', 'settingsTab');
+            statusDiv.textContent = '✓ Settings saved! Capture page updated.';
+            statusDiv.className = 'status-message success';
+            statusDiv.style.display = 'block';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
         } else {
             const data = await response.json();
-            showStatus(data.error || 'Failed to save settings', 'error', 'settingsTab');
+            statusDiv.textContent = `❌ ${data.error || 'Failed to save settings'}`;
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
         }
     } catch (error) {
         console.error('Error saving capture settings:', error);
-        showStatus('Failed to save settings', 'error', 'settingsTab');
+        statusDiv.textContent = `❌ Error: ${error.message}`;
+        statusDiv.className = 'status-message error';
+        statusDiv.style.display = 'block';
     }
 }
 
