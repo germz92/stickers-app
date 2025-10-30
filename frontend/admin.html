@@ -116,45 +116,46 @@
                                 Clear
                             </button>
                         </div>
+
+                        <div class="generation-settings">
+                            <div class="form-group">
+                                <label>
+                                    <strong>Preset</strong>
+                                    <span class="optional">(Optional)</span>
+                                </label>
+                                <select id="presetSelect" onchange="loadPresetValues()">
+                                    <option value="">Custom (type below)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <strong>Prompt Text</strong>
+                                    <span class="required">*</span>
+                                </label>
+                                <textarea id="promptInput" rows="3" placeholder="e.g., magician, astronaut, superhero..."></textarea>
+                                <div class="hint">
+                                    Choose an outfit, costume, profession, or activity
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <strong>Custom Text (Max 10 characters)</strong>
+                                </label>
+                                <input type="text" id="customTextInput" maxlength="10" placeholder="e.g., Wow!, Hello...">
+                            </div>
+
+                            <button id="generateBtn" onclick="generateStickers()" class="btn-generate" disabled>
+                                Generate
+                            </button>
+
+                            <div id="statusMessage" class="status-message"></div>
+                        </div>
                     </div>
 
-                    <!-- Right: Controls and Results -->
+                    <!-- Right: Results -->
                     <div class="generation-controls">
-                        <h2>Generation Settings</h2>
-
-                        <div class="form-group">
-                            <label>
-                                <strong>Preset</strong>
-                                <span class="optional">(Optional)</span>
-                            </label>
-                            <select id="presetSelect" onchange="loadPresetValues()">
-                                <option value="">Custom (type below)</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>
-                                <strong>Prompt Text</strong>
-                                <span class="required">*</span>
-                            </label>
-                            <textarea id="promptInput" rows="3" placeholder="e.g., magician, astronaut, superhero..."></textarea>
-                            <div class="hint">
-                                💡 Choose an outfit, costume, profession, or activity. Keep it simple and appropriate.
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>
-                                <strong>Custom Text (Max 10 characters)</strong>
-                            </label>
-                            <input type="text" id="customTextInput" maxlength="10" placeholder="e.g., Wow!, Hello...">
-                        </div>
-
-                        <button id="generateBtn" onclick="generateStickers()" class="btn-generate" disabled>
-                            Generate
-                        </button>
-
-                        <div id="statusMessage" class="status-message"></div>
 
                         <!-- Generation Progress -->
                         <div id="generationProgress" class="generation-progress" style="display: none;">
@@ -192,7 +193,7 @@
                                 </div>
                             </div>
                             <button onclick="downloadAllImages()" class="btn-primary" style="width: 100%; margin-top: 20px;">
-                                📥 Download All Print-Ready Images
+                                Download All Images
                             </button>
                         </div>
                     </div>
