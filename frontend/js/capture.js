@@ -146,7 +146,10 @@ function retakePhoto() {
     document.getElementById('nameInput').value = '';
     document.getElementById('promptInput').value = '';
     document.getElementById('customTextInput').value = '';
-    document.getElementById('submitBtn').disabled = true;
+    
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submit';
     
     // Restart camera
     startCamera();
@@ -201,14 +204,9 @@ async function submitCapture() {
         return;
     }
 
-    if (customText.length > 10) {
-        alert('Custom text must be 10 characters or less');
-        return;
-    }
-
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
-    submitBtn.textContent = '⏳ Submitting...';
+    submitBtn.textContent = 'Submitting...';
 
     try {
         const response = await fetch(`${API_BASE_URL}/submissions`, {
@@ -237,7 +235,7 @@ async function submitCapture() {
         console.error('Submission error:', error);
         alert(`Error: ${error.message}`);
         submitBtn.disabled = false;
-        submitBtn.textContent = '🚀 Submit';
+        submitBtn.textContent = 'Submit';
     }
 }
 
@@ -248,7 +246,10 @@ function startOver() {
     document.getElementById('nameInput').value = '';
     document.getElementById('promptInput').value = '';
     document.getElementById('customTextInput').value = '';
-    document.getElementById('submitBtn').disabled = true;
+    
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submit';
     
     // Start camera again
     startCamera();
