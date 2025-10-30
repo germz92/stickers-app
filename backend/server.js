@@ -13,9 +13,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static frontend files
-app.use(express.static(path.join(__dirname, '../frontend')));
-
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
@@ -415,11 +412,12 @@ app.delete('/api/presets/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Catch-all route - serve index.html for any non-API routes
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
-  }
+// Serve static frontend files (after API routes)
+app.use(express.static(path.join(__dirname, '../frontend')));
+
+// Root route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
 // Start server
