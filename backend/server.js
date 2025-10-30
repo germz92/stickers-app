@@ -301,23 +301,33 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(response.data);
     
-    // Extract number from S3 URL (timestamp portion)
-    // Example: results/1761856420606-0aaaa03b57a5fb9c.jpg -> 1761856420606
-    const urlParts = url.split('/');
-    const s3Filename = urlParts[urlParts.length - 1]; // "1761856420606-0aaaa03b57a5fb9c.jpg"
-    const numberMatch = s3Filename.match(/^(\d+)/); // Extract leading digits
-    const imageNumber = numberMatch ? numberMatch[1] : Date.now();
+    // Extract ComfyUI number from filename
+    // Example: "sticker_1_ComfyUI_temp_tqhca_00073_.png" -> "00073"
+    let imageNumber = Date.now().toString();
+    if (filename) {
+      // Look for 5-digit number pattern in the filename
+      const numberMatch = filename.match(/(\d{5})/);
+      if (numberMatch) {
+        imageNumber = numberMatch[1]; // "00073"
+      }
+    }
     
-    // Determine file extension
-    const contentType = response.headers['content-type'] || 'image/png';
-    const fileExtension = contentType.split('/')[1] || 'png';
+    // Create filename: lumsticker[number].png (no underscore, no "s")
+    const downloadFilename = `lumsticker${imageNumber}.png`;
     
-    // Create filename: lumstickers_[number].[ext]
-    const downloadFilename = filename || `lumstickers_${imageNumber}.${fileExtension}`;
+    // Get image metadata to calculate aspect ratio
+    const metadata = await sharp(imageBuffer).metadata();
+    const aspectRatio = metadata.width / metadata.height;
     
-    // Process image with sharp to set 600 DPI metadata
-    // 600 DPI is the print resolution, height should be 2.5 inches = 1500 pixels
+    // Process image: resize to exactly 2.5 inches at 600 DPI (1500 pixels height)
+    const targetHeight = 1500; // 2.5 inches * 600 DPI
+    const targetWidth = Math.round(targetHeight * aspectRatio);
+    
     const processedImage = await sharp(imageBuffer)
+      .resize(targetWidth, targetHeight, {
+        fit: 'fill', // Ensure exact dimensions
+        kernel: 'lanczos3' // High-quality resampling
+      })
       .withMetadata({
         density: 600 // 600 DPI for both X and Y
       })
