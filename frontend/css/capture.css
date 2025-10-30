@@ -71,11 +71,11 @@ body {
 /* Camera Frame Guides */
 .camera-frame {
     position: absolute;
-    top: 50%;
+    top: 45%;
     left: 50%;
     transform: translate(-50%, -50%);
     width: 100%;
-    height: 100%;
+    height: 50vh;
     pointer-events: none;
     display: flex;
     align-items: center;
@@ -84,8 +84,8 @@ body {
 
 .face-guide {
     position: relative;
-    width: 45%;
-    height: 55%;
+    width: 80%;
+    height: 90%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -101,16 +101,17 @@ body {
 /* Guide instruction text */
 .guide-text {
     position: absolute;
-    bottom: -40px;
+    bottom: -50px;
     left: 50%;
     transform: translateX(-50%);
-    color: rgba(0, 229, 255, 0.8);
-    font-size: 0.9em;
-    letter-spacing: 1px;
+    color: rgba(0, 229, 255, 0.9);
+    font-size: 1.3em;
+    font-weight: 500;
+    letter-spacing: 2px;
     text-transform: uppercase;
     text-align: center;
     white-space: nowrap;
-    text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+    text-shadow: 0 0 15px rgba(0, 229, 255, 0.6);
 }
 
 @keyframes pulse-guide {
@@ -124,6 +125,15 @@ body {
     }
 }
 
+@keyframes button-pulse {
+    0%, 100% {
+        box-shadow: 0 8px 32px rgba(0, 229, 255, 0.4), 0 0 40px rgba(0, 229, 255, 0.2);
+    }
+    50% {
+        box-shadow: 0 8px 32px rgba(0, 229, 255, 0.6), 0 0 60px rgba(0, 229, 255, 0.4);
+    }
+}
+
 .camera-controls {
     background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
     padding: 60px 20px 40px;
@@ -132,28 +142,31 @@ body {
 }
 
 .btn-capture {
-    background: rgba(0, 229, 255, 0.1);
-    color: #00e5ff;
-    border: 1px solid rgba(0, 229, 255, 0.5);
-    border-radius: 4px;
-    padding: 16px 40px;
-    font-size: 1.1em;
-    font-weight: 400;
-    letter-spacing: 1px;
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(0, 184, 255, 0.3));
+    color: #ffffff;
+    border: 2px solid rgba(0, 229, 255, 0.8);
+    border-radius: 8px;
+    padding: 24px 60px;
+    font-size: 1.5em;
+    font-weight: 500;
+    letter-spacing: 2px;
     text-transform: uppercase;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 12px;
-    box-shadow: 0 4px 20px rgba(0, 229, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 229, 255, 0.4), 0 0 40px rgba(0, 229, 255, 0.2);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(10px);
+    position: relative;
+    animation: button-pulse 2s ease-in-out infinite;
 }
 
 .btn-capture:hover {
-    background: rgba(0, 229, 255, 0.2);
-    box-shadow: 0 6px 30px rgba(0, 229, 255, 0.4);
-    transform: translateY(-2px);
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.3), rgba(0, 184, 255, 0.4));
+    box-shadow: 0 12px 40px rgba(0, 229, 255, 0.6), 0 0 60px rgba(0, 229, 255, 0.3);
+    transform: translateY(-3px) scale(1.02);
+    border-color: rgba(0, 229, 255, 1);
 }
 
 .btn-capture:active {
@@ -596,8 +609,8 @@ header h1 {
     }
 
     .btn-capture {
-        font-size: 1.2em;
-        padding: 15px 35px;
+        font-size: 1.6em;
+        padding: 28px 70px;
     }
 
     .thank-you-container h1 {
@@ -614,34 +627,39 @@ header h1 {
     }
 
     .face-guide {
-        width: 55%;
-        height: 50%;
+        width: 85%;
+        height: 90%;
     }
 
     .guide-text {
-        font-size: 0.8em;
-        bottom: -35px;
+        font-size: 1.4em;
+        bottom: -55px;
     }
 }
 
 /* iPad and Tablet Portrait */
 @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
     .face-guide {
-        width: 40%;
-        height: 50%;
+        width: 85%;
+        height: 90%;
+    }
+    
+    .guide-text {
+        font-size: 1.5em;
+        bottom: -60px;
     }
 }
 
 /* iPad and Tablet Landscape */
 @media (min-width: 768px) and (orientation: landscape) {
     .face-guide {
-        width: 35%;
-        height: 65%;
+        width: 40%;
+        height: 80%;
     }
 
     .guide-text {
-        bottom: -45px;
-        font-size: 1em;
+        bottom: -50px;
+        font-size: 1.3em;
     }
 }
 
@@ -663,12 +681,12 @@ header h1 {
     }
 
     .face-guide {
-        width: 60%;
-        height: 45%;
+        width: 85%;
+        height: 80%;
     }
 
     .guide-text {
-        font-size: 0.75em;
-        bottom: -30px;
+        font-size: 1.2em;
+        bottom: -45px;
     }
 }

@@ -95,6 +95,23 @@ async function startCamera() {
         video = document.getElementById('video');
         canvas = document.getElementById('canvas');
         
+        // Check if permission is already granted (reduces re-prompting on some browsers)
+        if (navigator.permissions && navigator.permissions.query) {
+            try {
+                const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                console.log('Camera permission status:', permissionStatus.state);
+                
+                if (permissionStatus.state === 'denied') {
+                    alert('Camera access denied. Please enable camera permissions in your browser settings.');
+                    return;
+                }
+            } catch (e) {
+                // Permissions API not fully supported, continue anyway
+                console.log('Permissions API not available, proceeding with camera request');
+            }
+        }
+        
+        // Request camera access
         stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'user',
@@ -109,7 +126,14 @@ async function startCamera() {
         showStep('camera');
     } catch (error) {
         console.error('Camera error:', error);
-        alert('Unable to access camera. Please check permissions and try again.');
+        
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            alert('Camera access denied. Please enable camera permissions and refresh the page.');
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+            alert('No camera found. Please connect a camera and try again.');
+        } else {
+            alert('Unable to access camera. Please check permissions and try again.');
+        }
     }
 }
 

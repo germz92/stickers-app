@@ -822,10 +822,22 @@ function downloadImage(base64Data, filename) {
     document.body.removeChild(link);
 }
 
-// Download image from URL
+// Download image from URL via backend proxy (bypasses CORS)
 async function downloadImageFromUrl(url, filename) {
     try {
-        const response = await fetch(url);
+        // Use backend proxy to download S3 images and bypass CORS
+        const proxyUrl = `${API_BASE_URL}/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+        
+        const response = await fetch(proxyUrl, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Download failed');
+        }
+        
         const blob = await response.blob();
         const blobUrl = URL.createObjectURL(blob);
         

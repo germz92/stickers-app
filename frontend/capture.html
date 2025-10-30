@@ -2,9 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:;">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Stickers">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#00e5ff">
     <title>Stickers Generator - Capture</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/images/header-image.png">
     <link rel="stylesheet" href="css/capture.css">
 </head>
 <body>
@@ -36,10 +43,10 @@
                         <div class="face-guide">
                             <svg class="face-outline" viewBox="0 0 200 280" xmlns="http://www.w3.org/2000/svg">
                                 <!-- Simple oval face guide -->
-                                <ellipse cx="100" cy="140" rx="70" ry="100" 
+                                <ellipse cx="100" cy="140" rx="95" ry="135" 
                                          fill="none" 
-                                         stroke="rgba(0, 229, 255, 0.5)" 
-                                         stroke-width="3"/>
+                                         stroke="rgba(0, 229, 255, 0.7)" 
+                                         stroke-width="5"/>
                             </svg>
                             <div class="guide-text">Position your face here</div>
                         </div>
@@ -149,6 +156,16 @@
 
     <script src="js/config.js"></script>
     <script src="js/capture.js"></script>
+    <script>
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>
 
