@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:;">
+    <title>Stickers Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', sans-serif;
+            background: #0a0a0a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e0e0e0;
+        }
+
+        .container {
+            text-align: center;
+            padding: 60px 40px;
+            max-width: 600px;
+            background: rgba(18, 18, 18, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            font-weight: 300;
+            letter-spacing: 3px;
+            margin-bottom: 15px;
+            color: #ffffff;
+            text-transform: uppercase;
+        }
+
+        p {
+            font-size: 1em;
+            margin-bottom: 50px;
+            color: #888;
+            letter-spacing: 0.5px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 40px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            font-size: 1em;
+            font-weight: 400;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-capture {
+            background: rgba(0, 229, 255, 0.15);
+            color: #00e5ff;
+            border-color: rgba(0, 229, 255, 0.5);
+        }
+
+        .btn-capture:hover {
+            background: rgba(0, 229, 255, 0.25);
+            box-shadow: 0 4px 20px rgba(0, 229, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-admin {
+            background: rgba(255, 255, 255, 0.05);
+            color: #b0b0b0;
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-admin:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+        .info {
+            margin-top: 50px;
+            font-size: 0.85em;
+            color: #666;
+            letter-spacing: 0.5px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 40px 20px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+
+            .buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Stickers Generator</h1>
+        <p>Create AI-powered stickers</p>
+        
+        <div class="buttons">
+            <a href="capture.html" class="btn btn-capture">
+                Capture Photo
+            </a>
+            <a href="admin.html" class="btn btn-admin">
+                Admin Panel
+            </a>
+        </div>
+
+        <div class="info">
+            <p>Take a selfie and let AI transform you into amazing stickers</p>
+        </div>
+    </div>
+</body>
+</html>
+

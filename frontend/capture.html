@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:;">
+    <title>Stickers Generator - Capture</title>
+    <link rel="stylesheet" href="css/capture.css">
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h2>Enter Access Code</h2>
+            <p>Please enter the password to access the capture page</p>
+            <input type="password" id="loginPassword" placeholder="Enter password">
+            <button onclick="login()" class="btn-primary">Login</button>
+            <div id="loginError" class="error-message"></div>
+        </div>
+    </div>
+
+    <div id="mainContent" style="display: none;">
+        <!-- Step 1: Camera View (Full Screen) -->
+        <div id="cameraStep" class="step-container">
+            <div class="fullscreen-camera">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas" style="display: none;"></canvas>
+                
+                <div class="camera-overlay">
+                    <div class="camera-header">
+                        <img src="images/header-image.png" alt="Logo" class="logo-small" onerror="this.style.display='none'">
+                        <h2>Take Your Photo</h2>
+                    </div>
+                    
+                    <div class="camera-frame">
+                        <div class="face-guide">
+                            <svg class="face-outline" viewBox="0 0 200 280" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Simple oval face guide -->
+                                <ellipse cx="100" cy="140" rx="70" ry="100" 
+                                         fill="none" 
+                                         stroke="rgba(0, 229, 255, 0.5)" 
+                                         stroke-width="3"/>
+                            </svg>
+                            <div class="guide-text">Position your face here</div>
+                        </div>
+                    </div>
+                    
+                    <div class="camera-controls">
+                        <button id="captureBtn" onclick="capturePhoto()" class="btn-capture">
+                            <span>Capture</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Form (After Photo Taken) -->
+        <div id="formStep" class="step-container" style="display: none;">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <h1>Complete Your Details</h1>
+                </div>
+            </header>
+
+            <main class="container">
+                <div class="form-container">
+                    <div class="photo-preview">
+                        <img id="photoPreview" alt="Your photo">
+                        <button onclick="retakePhoto()" class="btn-retake">
+                            Retake
+                        </button>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-group">
+                            <label for="nameInput">
+                                <strong>Your Name</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="nameInput" 
+                                placeholder="Enter your name"
+                                maxlength="50"
+                                autofocus
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="promptInput">
+                                <strong>Sticker Theme</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="promptInput" 
+                                placeholder="e.g., astronaut, superhero, chef..."
+                                maxlength="100"
+                            >
+                            <div class="hint">
+                                Choose an outfit, costume, profession, or activity
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="customTextInput">
+                                <strong>Custom Text</strong>
+                                <span class="optional">(Optional, max 10 characters)</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="customTextInput" 
+                                placeholder="e.g., Wow!, Hello..."
+                                maxlength="10"
+                            >
+                        </div>
+
+                        <button 
+                            id="submitBtn" 
+                            onclick="submitCapture()" 
+                            class="btn-submit"
+                            disabled
+                        >
+                            Submit
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Step 3: Thank You Message -->
+        <div id="thankYouStep" class="step-container" style="display: none;">
+            <div class="thank-you-container">
+                <img src="images/header-image.png" alt="Logo" class="logo-large" onerror="this.style.display='none'">
+                <div class="thank-you-icon">✓</div>
+                <h1>Thank You</h1>
+                <p class="thank-you-message">
+                    Your submission has been received successfully.
+                </p>
+                <p class="instruction">
+                    Please see the <strong>booth attendant</strong> to get your stickers printed.
+                </p>
+                <button onclick="startOver()" class="btn-start-over">
+                    Take Another Photo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/capture.js"></script>
+</body>
+</html>
+

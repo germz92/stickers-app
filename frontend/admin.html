@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:;">
+    <title>Stickers Generator - Admin</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <p>Please enter the admin password</p>
+            <input type="password" id="loginPassword" placeholder="Enter admin password">
+            <button onclick="login()" class="btn-primary">Login</button>
+            <div id="loginError" class="error-message"></div>
+        </div>
+    </div>
+
+    <div id="mainContent" style="display: none;">
+        <header>
+            <div class="container">
+                <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                <h1>Stickers Generator - Admin Panel</h1>
+                <div class="header-controls">
+                    <button onclick="checkComfyUIStatus()" class="btn-secondary btn-sm">
+                        Check ComfyUI
+                    </button>
+                    <span id="comfyStatus" class="status-indicator">Unknown</span>
+                    <button onclick="logout()" class="btn-danger btn-sm">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="container">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('queue')">
+                    Queue
+                    <span id="queueCount" class="badge">0</span>
+                </button>
+                <button class="tab-btn" onclick="switchTab('generate')">
+                    Generate
+                </button>
+                <button class="tab-btn" onclick="switchTab('presets')">
+                    Presets
+                </button>
+            </div>
+
+            <!-- Queue Tab -->
+            <div id="queueTab" class="tab-content active">
+                <div class="section-header">
+                    <h2>Submission Queue</h2>
+                    <button onclick="loadSubmissions()" class="btn-secondary">
+                        Refresh
+                    </button>
+                </div>
+
+                <div class="filter-controls">
+                    <label>
+                        <input type="radio" name="statusFilter" value="pending" checked onchange="filterSubmissions()">
+                        Pending
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="approved" onchange="filterSubmissions()">
+                        Approved
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="processing" onchange="filterSubmissions()">
+                        Processing
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="completed" onchange="filterSubmissions()">
+                        Completed
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="all" onchange="filterSubmissions()">
+                        All
+                    </label>
+                </div>
+
+                <div id="submissionsList" class="submissions-grid">
+                    <p class="loading">Loading submissions...</p>
+                </div>
+            </div>
+
+            <!-- Generate Tab -->
+            <div id="generateTab" class="tab-content">
+                <div class="generate-container">
+                    <!-- Left: Current Selection -->
+                    <div class="current-selection">
+                        <h2>Current Selection</h2>
+                        <div id="currentSubmission" class="current-submission-preview">
+                            <p class="placeholder">
+                                Select a submission from the queue<br>
+                                <strong>or</strong><br>
+                                Upload / Drag & Drop an image here
+                            </p>
+                        </div>
+
+                        <div class="image-controls">
+                            <button onclick="document.getElementById('customImageUpload').click()" class="btn-secondary" style="width: 100%;">
+                                Upload Image
+                            </button>
+                            <input type="file" id="customImageUpload" accept="image/*" onchange="loadCustomImage(event)" style="display: none;">
+                            
+                            <button id="replaceImageBtn" onclick="replaceImage()" class="btn-secondary" style="width: 100%; display: none;">
+                                Replace
+                            </button>
+                            
+                            <button id="clearImageBtn" onclick="clearImage()" class="btn-danger" style="width: 100%; display: none;">
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right: Controls and Results -->
+                    <div class="generation-controls">
+                        <h2>Generation Settings</h2>
+
+                        <div class="form-group">
+                            <label>
+                                <strong>Preset</strong>
+                                <span class="optional">(Optional)</span>
+                            </label>
+                            <select id="presetSelect" onchange="loadPresetValues()">
+                                <option value="">Custom (type below)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <strong>Prompt Text</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <textarea id="promptInput" rows="3" placeholder="e.g., magician, astronaut, superhero..."></textarea>
+                            <div class="hint">
+                                💡 Choose an outfit, costume, profession, or activity. Keep it simple and appropriate.
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <strong>Custom Text (Max 10 characters)</strong>
+                            </label>
+                            <input type="text" id="customTextInput" maxlength="10" placeholder="e.g., Wow!, Hello...">
+                        </div>
+
+                        <button id="generateBtn" onclick="generateStickers()" class="btn-generate" disabled>
+                            Generate
+                        </button>
+
+                        <div id="statusMessage" class="status-message"></div>
+
+                        <!-- Generation Progress -->
+                        <div id="generationProgress" class="generation-progress" style="display: none;">
+                            <div class="progress-header">
+                                <h3>Generating...</h3>
+                                <p id="progressStatus">Waiting for processor...</p>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="progressBar"></div>
+                            </div>
+                            <div class="progress-steps">
+                                <div class="step" id="step1">Uploading</div>
+                                <div class="step" id="step2">Processing</div>
+                                <div class="step" id="step3">Downloading</div>
+                                <div class="step" id="step4">Complete</div>
+                            </div>
+                        </div>
+
+                        <!-- Generated Images -->
+                        <div id="generatedImages" class="generated-images" style="display: none;">
+                            <h3>Generated Stickers</h3>
+                            <p class="info-text">Print-ready at 600 DPI, 2.5 inches tall</p>
+                            <div class="images-grid">
+                                <div class="image-slot" id="imageSlot1">
+                                    <div class="slot-placeholder">Slot 1</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot2">
+                                    <div class="slot-placeholder">Slot 2</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot3">
+                                    <div class="slot-placeholder">Slot 3</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot4">
+                                    <div class="slot-placeholder">Slot 4</div>
+                                </div>
+                            </div>
+                            <button onclick="downloadAllImages()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                                📥 Download All Print-Ready Images
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Presets Tab -->
+            <div id="presetsTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Manage Presets</h2>
+                </div>
+
+                <div class="presets-container">
+                    <div class="preset-form">
+                        <h3>Add New Preset</h3>
+                        <div class="form-group">
+                            <label>Preset Name</label>
+                            <input type="text" id="newPresetName" placeholder="e.g., Magician, Chef, Astronaut">
+                        </div>
+                        <div class="form-group">
+                            <label>Prompt</label>
+                            <textarea id="newPresetPrompt" rows="2" placeholder="e.g., magician holding a rabbit"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Custom Text</label>
+                            <input type="text" id="newPresetText" maxlength="10" placeholder="e.g., Voila!">
+                        </div>
+                        <button onclick="addPreset()" class="btn-primary">Save</button>
+                        <div id="presetStatus" class="status-message"></div>
+                    </div>
+
+                    <div class="preset-list">
+                        <h3>Saved Presets</h3>
+                        <div id="presetsList">
+                            <p class="loading">Loading presets...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by AI Stickers Generator with ComfyUI</p>
+        </footer>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+</html>
+
