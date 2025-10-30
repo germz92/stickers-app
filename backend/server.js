@@ -6,6 +6,8 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const axios = require('axios');
+const sharp = require('sharp');
 const { uploadImageToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
 
 const app = express();
@@ -283,6 +285,55 @@ app.get('/api/submissions/:id/thumbnail', authenticateAdmin, async (req, res) =>
     res.json({ photo: submission.photo, name: submission.name });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Proxy download endpoint to bypass CORS
+app.get('/api/download', authenticateAdmin, async (req, res) => {
+  try {
+    const { url, filename } = req.query;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL parameter is required' });
+    }
+
+    // Download image from S3
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    const imageBuffer = Buffer.from(response.data);
+    
+    // Extract number from S3 URL (timestamp portion)
+    // Example: results/1761856420606-0aaaa03b57a5fb9c.jpg -> 1761856420606
+    const urlParts = url.split('/');
+    const s3Filename = urlParts[urlParts.length - 1]; // "1761856420606-0aaaa03b57a5fb9c.jpg"
+    const numberMatch = s3Filename.match(/^(\d+)/); // Extract leading digits
+    const imageNumber = numberMatch ? numberMatch[1] : Date.now();
+    
+    // Determine file extension
+    const contentType = response.headers['content-type'] || 'image/png';
+    const fileExtension = contentType.split('/')[1] || 'png';
+    
+    // Create filename: lumstickers_[number].[ext]
+    const downloadFilename = filename || `lumstickers_${imageNumber}.${fileExtension}`;
+    
+    // Process image with sharp to set 600 DPI metadata
+    // 600 DPI is the print resolution, height should be 2.5 inches = 1500 pixels
+    const processedImage = await sharp(imageBuffer)
+      .withMetadata({
+        density: 600 // 600 DPI for both X and Y
+      })
+      .png({ 
+        compressionLevel: 0, // No compression for print quality
+        density: 600
+      })
+      .toBuffer();
+    
+    // Send the processed image with correct headers
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+    res.send(processedImage);
+  } catch (error) {
+    console.error('Download proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to download image' });
   }
 });
 
