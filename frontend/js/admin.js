@@ -176,14 +176,58 @@ function stopPolling() {
     isPolling = false;
 }
 
+// Track previous filter to detect changes
+let previousFilter = 'pending';
+
 // Filter Submissions
 function filterSubmissions() {
     const filter = document.querySelector('input[name="statusFilter"]:checked').value;
+    const searchTerm = document.getElementById('searchInput')?.value.toLowerCase() || '';
+    const sortOrderElement = document.getElementById('sortOrder');
     
+    // Auto-switch sort order when switching to/from completed, rejected, or failed tabs
+    if (filter !== previousFilter) {
+        if (filter === 'completed' || filter === 'rejected' || filter === 'failed') {
+            // Switch to newest first for completed/rejected/failed
+            sortOrderElement.value = 'newest';
+        } else if (previousFilter === 'completed' || previousFilter === 'rejected' || previousFilter === 'failed') {
+            // Switch back to oldest first when leaving completed/rejected/failed
+            sortOrderElement.value = 'oldest';
+        }
+        previousFilter = filter;
+    }
+    
+    const sortOrder = sortOrderElement.value;
+    
+    // Filter by status
     let filtered = allSubmissions;
     if (filter !== 'all') {
         filtered = allSubmissions.filter(s => s.status === filter);
     }
+    
+    // Filter by search term (search in name)
+    if (searchTerm) {
+        filtered = filtered.filter(s => 
+            s.name.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    // Sort by date
+    filtered = [...filtered].sort((a, b) => {
+        // Use processedAt for completed submissions, createdAt for others
+        const dateA = filter === 'completed' && a.processedAt 
+            ? new Date(a.processedAt).getTime() 
+            : new Date(a.createdAt).getTime();
+        const dateB = filter === 'completed' && b.processedAt 
+            ? new Date(b.processedAt).getTime() 
+            : new Date(b.createdAt).getTime();
+        
+        if (sortOrder === 'oldest') {
+            return dateA - dateB; // Oldest first
+        } else {
+            return dateB - dateA; // Newest first
+        }
+    });
     
     displaySubmissions(filtered);
 }
@@ -197,42 +241,122 @@ function displaySubmissions(submissions) {
         return;
     }
     
-    container.innerHTML = submissions.map(sub => `
-        <div class="submission-card">
-            <img id="thumb-${sub._id}" 
-                 class="submission-thumbnail" 
-                 src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><rect fill='%23f0f0f0' width='300' height='200'/><text x='50%25' y='50%25' text-anchor='middle' fill='%23999'>Loading...</text></svg>"
-                 alt="${sub.name}">
-            <div class="submission-info">
-                <h3>👤 ${escapeHtml(sub.name)}</h3>
-                <p><strong>Submitted:</strong> ${new Date(sub.createdAt).toLocaleString()}</p>
-                <div class="prompt">
-                    <strong>Prompt:</strong> ${escapeHtml(sub.prompt)}
+    container.innerHTML = submissions.map(sub => {
+        // Different display for completed vs other statuses
+        if (sub.status === 'completed' && sub.generatedImages && sub.generatedImages.length > 0) {
+            return `
+                <div class="submission-card completed-card">
+                    <div class="completed-preview">
+                        <img id="thumb-${sub._id}" 
+                             class="submission-thumbnail-small" 
+                             src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect fill='%23f0f0f0' width='100' height='100'/></svg>"
+                             alt="${sub.name}">
+                        <div class="sticker-thumbnails">
+                            ${sub.generatedImages.slice(0, 4).map((img, idx) => `
+                                <img src="${img.url}" 
+                                     alt="Sticker ${idx + 1}" 
+                                     class="sticker-thumb" 
+                                     onclick='openLightbox(${JSON.stringify(sub.generatedImages)}, ${idx})'>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="submission-info">
+                        <h3>${escapeHtml(sub.name)}</h3>
+                        <p><strong>Completed:</strong> ${new Date(sub.processedAt || sub.createdAt).toLocaleString()}</p>
+                        <span class="submission-status ${sub.status}">${sub.status.toUpperCase()}</span>
+                    </div>
+                    <div class="submission-actions">
+                        <button onclick="viewCompletedSubmission('${sub._id}')" class="btn-primary btn-sm">
+                            View Details
+                        </button>
+                        <button onclick="addToQueue('${sub._id}')" class="btn-success btn-sm">
+                            Add to Queue
+                        </button>
+                        <button onclick="regenerateSubmission('${sub._id}')" class="btn-warning btn-sm">
+                            Regenerate
+                        </button>
+                        <button onclick="deleteSubmission('${sub._id}')" class="btn-danger btn-sm">
+                            Delete
+                        </button>
+                    </div>
                 </div>
-                ${sub.customText ? `<p><strong>Custom Text:</strong> ${escapeHtml(sub.customText)}</p>` : ''}
-                <span class="submission-status ${sub.status}">${sub.status.toUpperCase()}</span>
-            </div>
-            <div class="submission-actions">
-                ${sub.status === 'pending' ? `
-                    <button onclick="approveSubmission('${sub._id}')" class="btn-success btn-sm">
-                        ✅ Approve
-                    </button>
-                    <button onclick="rejectSubmission('${sub._id}')" class="btn-danger btn-sm">
-                        ❌ Reject
-                    </button>
-                ` : ''}
-                <button onclick="loadSubmissionForGeneration('${sub._id}')" class="btn-primary btn-sm">
-                    ⚡ Generate
-                </button>
-                <button onclick="deleteSubmission('${sub._id}')" class="btn-danger btn-sm">
-                    🗑️ Delete
-                </button>
-            </div>
-        </div>
-    `).join('');
+            `;
+        } else if (sub.status === 'failed') {
+            return `
+                <div class="submission-card failed-card">
+                    <img id="thumb-${sub._id}" 
+                         class="submission-thumbnail" 
+                         src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><rect fill='%23f0f0f0' width='300' height='200'/></svg>"
+                         alt="${sub.name}">
+                    <div class="submission-info">
+                        <h3>${escapeHtml(sub.name)}</h3>
+                        <p><strong>Submitted:</strong> ${new Date(sub.createdAt).toLocaleString()}</p>
+                        <p class="failure-reason"><strong>Failed:</strong> ${escapeHtml(sub.failureReason || 'Unknown error')}</p>
+                        <p><strong>Attempts:</strong> ${sub.retryCount || 0}/3</p>
+                        <span class="submission-status ${sub.status}">${sub.status.toUpperCase()}</span>
+                    </div>
+                    <div class="submission-actions">
+                        <button onclick="retryFailedSubmission('${sub._id}')" class="btn-warning btn-sm">
+                            Retry
+                        </button>
+                        <button onclick="deleteSubmission('${sub._id}')" class="btn-danger btn-sm">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            // Default display for pending, approved, processing
+            return `
+                <div class="submission-card">
+                    <img id="thumb-${sub._id}" 
+                         class="submission-thumbnail" 
+                         src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><rect fill='%23f0f0f0' width='300' height='200'/></svg>"
+                         alt="${sub.name}">
+                    <div class="submission-info">
+                        <h3>${escapeHtml(sub.name)}</h3>
+                        <p><strong>Submitted:</strong> ${new Date(sub.createdAt).toLocaleString()}</p>
+                        <div class="prompt">
+                            <strong>Prompt:</strong> ${escapeHtml(sub.prompt)}
+                        </div>
+                        ${sub.customText ? `<p><strong>Custom Text:</strong> ${escapeHtml(sub.customText)}</p>` : ''}
+                        <span class="submission-status ${sub.status}">${sub.status.toUpperCase()}</span>
+                    </div>
+                    <div class="submission-actions">
+                        ${sub.status === 'pending' ? `
+                            <button onclick="approveSubmission('${sub._id}')" class="btn-success btn-sm">
+                                Approve
+                            </button>
+                            <button onclick="rejectSubmission('${sub._id}')" class="btn-danger btn-sm">
+                                Reject
+                            </button>
+                        ` : ''}
+                        ${sub.status === 'processing' ? `
+                            <button onclick="verifyStatus('${sub._id}')" class="btn-warning btn-sm">
+                                Verify Status
+                            </button>
+                        ` : ''}
+                        ${sub.status === 'rejected' || sub.status === 'processing' ? `
+                            <button onclick="addToQueue('${sub._id}')" class="btn-success btn-sm">
+                                Add to Queue
+                            </button>
+                        ` : ''}
+                        <button onclick="loadSubmissionForGeneration('${sub._id}')" class="btn-primary btn-sm">
+                            Generate
+                        </button>
+                        <button onclick="deleteSubmission('${sub._id}')" class="btn-danger btn-sm">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    }).join('');
     
-    // Load thumbnails asynchronously
-    submissions.forEach(sub => loadThumbnail(sub._id));
+    // Load thumbnails asynchronously for all entries
+    submissions.forEach(sub => {
+        loadThumbnail(sub._id);
+    });
 }
 
 // Load thumbnail for a submission
@@ -270,13 +394,12 @@ async function approveSubmission(id) {
             filterSubmissions();
         }
         
-        const response = await fetch(`${API_BASE_URL}/submissions/${id}/status`, {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/approve`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ status: 'approved' })
+            }
         });
 
         if (response.ok) {
@@ -540,6 +663,216 @@ function setupDragAndDrop() {
     }
 }
 
+// View completed submission in expanded modal
+async function viewCompletedSubmission(id) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch submission');
+        
+        const submission = await response.json();
+        
+        // Create modal HTML
+        const modalHTML = `
+            <div class="modal-overlay" onclick="closeCompletedModal()">
+                <div class="modal-content completed-modal" onclick="event.stopPropagation()">
+                    <button class="modal-close" onclick="closeCompletedModal()">×</button>
+                    <h2>${escapeHtml(submission.name)}'s Stickers</h2>
+                    
+                    <div class="completed-details">
+                        <div class="left-column">
+                            <img src="${submission.photo}" alt="Original" class="original-photo">
+                            <div class="submission-metadata">
+                                <p><strong>Name:</strong> ${escapeHtml(submission.name)}</p>
+                                <p><strong>Completed:</strong> ${new Date(submission.processedAt || submission.createdAt).toLocaleString()}</p>
+                                <p><strong>Prompt:</strong> ${escapeHtml(submission.prompt)}</p>
+                                ${submission.customText ? `<p><strong>Custom Text:</strong> ${escapeHtml(submission.customText)}</p>` : ''}
+                            </div>
+                            ${submission.processingLogs && submission.processingLogs.length > 0 ? `
+                                <details class="processing-logs">
+                                    <summary>▼ Processing Logs</summary>
+                                    <div class="log-entries">
+                                        ${submission.processingLogs.map(log => `
+                                            <div class="log-entry ${log.level}">
+                                                <span class="log-time">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                                                <span class="log-message">${escapeHtml(log.message)}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        </div>
+                        
+                        <div class="right-column">
+                            <div class="stickers-grid">
+                                ${submission.generatedImages.map((img, idx) => `
+                                    <div class="sticker-item">
+                                        <img src="${img.url}" 
+                                             alt="Sticker ${idx + 1}"
+                                             onclick='openLightbox(${JSON.stringify(submission.generatedImages)}, ${idx})'
+                                             style="cursor: pointer;">
+                                        <button onclick="downloadImageFromUrl('${img.url}', '${img.filename}')" class="btn-sm btn-primary">
+                                            Download
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            
+                            <div class="modal-actions">
+                                <button onclick="downloadAllStickers('${id}')" class="btn-primary">
+                                    Download All
+                                </button>
+                                <button onclick="addToQueue('${id}')" class="btn-success">
+                                    Add to Queue
+                                </button>
+                                <button onclick="regenerateSubmission('${id}')" class="btn-warning">
+                                    Regenerate
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add to page
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    } catch (error) {
+        console.error('Error viewing submission:', error);
+        showStatus('Failed to load submission details', 'error');
+    }
+}
+
+function closeCompletedModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+// Regenerate submission
+async function regenerateSubmission(id) {
+    if (!confirm('Create a duplicate of this submission and regenerate? The original will be kept.')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/regenerate`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            closeCompletedModal();
+            await loadSubmissions();
+            showStatus('Duplicate created and added to queue for regeneration!', 'success');
+        } else {
+            showStatus('Failed to regenerate submission', 'error');
+        }
+    } catch (error) {
+        console.error('Regenerate error:', error);
+        showStatus('Error regenerating submission', 'error');
+    }
+}
+
+// Add submission to queue
+async function addToQueue(id) {
+    if (!confirm('Add this submission to the processing queue?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/add-to-queue`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            await loadSubmissions();
+            showStatus('Submission added to queue!', 'success');
+        } else {
+            showStatus('Failed to add submission to queue', 'error');
+        }
+    } catch (error) {
+        console.error('Add to queue error:', error);
+        showStatus('Error adding submission to queue', 'error');
+    }
+}
+
+// Verify and fix submission status
+async function verifyStatus(id) {
+    console.log('Verifying status for:', id);
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/verify-status`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        console.log('Verify response status:', response.status);
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Verify response data:', data);
+            
+            await loadSubmissions();
+            
+            if (data.fixed) {
+                showStatus(data.message, 'success');
+            } else {
+                showStatus(data.message, 'info');
+            }
+        } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Verify failed:', errorData);
+            showStatus(`Failed to verify status: ${errorData.error || 'Unknown error'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Verify status error:', error);
+        showStatus(`Error verifying status: ${error.message}`, 'error');
+    }
+}
+
+// Retry failed submission
+async function retryFailedSubmission(id) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/approve`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            await loadSubmissions();
+            showStatus('Submission moved to queue for retry!', 'success');
+        } else {
+            showStatus('Failed to retry submission', 'error');
+        }
+    } catch (error) {
+        console.error('Retry error:', error);
+        showStatus('Error retrying submission', 'error');
+    }
+}
+
+// Download all stickers
+async function downloadAllStickers(id) {
+    const submission = allSubmissions.find(s => s._id === id);
+    if (!submission || !submission.generatedImages) return;
+    
+    for (const img of submission.generatedImages) {
+        await downloadImageFromUrl(img.url, img.filename);
+        // Small delay between downloads
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    showStatus('All stickers downloaded!', 'success');
+}
+
 // Initialize drag and drop when page loads
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupDragAndDrop);
@@ -780,7 +1113,7 @@ async function displayGeneratedImages(submission) {
             <img src="${imageUrl}" alt="Generated Sticker ${i + 1}">
             <div class="image-info">600 DPI • 2.5"</div>
             <button class="download-btn" onclick="downloadImageFromUrl('${imageUrl}', 'sticker_${i + 1}_${imageData.filename}')">
-                📥 Download
+                Download
             </button>
         `;
     }
@@ -907,7 +1240,7 @@ function displayPresets() {
             </div>
             <div class="preset-item-actions">
                 <button onclick="deletePreset('${preset._id}')" class="btn-danger btn-sm">
-                    🗑️
+                    Delete
                 </button>
             </div>
         </div>
@@ -1146,9 +1479,17 @@ function addPromptPresetToList(name = '', value = '', index) {
     div.className = 'preset-item';
     div.id = id;
     div.innerHTML = `
-        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Astronaut)">
-        <textarea class="preset-value" rows="1" placeholder="Prompt value (e.g., astronaut floating in space)">${escapeHtml(value)}</textarea>
         <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+        <div class="preset-name">
+            <label>Button Name</label>
+            <input type="text" value="${escapeHtml(name)}" placeholder="e.g., Astronaut">
+            <span class="hint">Shown to users on capture page</span>
+        </div>
+        <div class="preset-value">
+            <label>Prompt Value</label>
+            <input type="text" value="${escapeHtml(value)}" placeholder="e.g., astronaut in space suit floating...">
+            <span class="hint">Hidden from users, used for generation</span>
+        </div>
     `;
     list.appendChild(div);
 }
@@ -1167,9 +1508,11 @@ function addCustomTextPresetToList(name = '', value = '', index) {
     div.className = 'preset-item';
     div.id = id;
     div.innerHTML = `
-        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Bold)">
-        <input type="text" class="preset-value" placeholder="Text value (e.g., AWESOME!)" value="${escapeHtml(value)}">
         <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+        <div class="preset-value">
+            <label>Text Value</label>
+            <input type="text" placeholder="e.g., AWESOME!" value="${escapeHtml(value)}">
+        </div>
     `;
     list.appendChild(div);
 }
@@ -1188,9 +1531,17 @@ function addPromptSuggestionToList(name = '', value = '', index) {
     div.className = 'preset-item';
     div.id = id;
     div.innerHTML = `
-        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Astronaut)">
-        <textarea class="preset-value" rows="1" placeholder="Prompt value (e.g., astronaut floating in space)">${escapeHtml(value)}</textarea>
         <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+        <div class="preset-name">
+            <label>Button Name</label>
+            <input type="text" value="${escapeHtml(name)}" placeholder="e.g., Astronaut">
+            <span class="hint">Shown to users on capture page</span>
+        </div>
+        <div class="preset-value">
+            <label>Prompt Value</label>
+            <input type="text" value="${escapeHtml(value)}" placeholder="e.g., astronaut in space suit floating...">
+            <span class="hint">Hidden from users, used for generation</span>
+        </div>
     `;
     list.appendChild(div);
 }
@@ -1209,9 +1560,11 @@ function addCustomTextSuggestionToList(name = '', value = '', index) {
     div.className = 'preset-item';
     div.id = id;
     div.innerHTML = `
-        <input type="text" class="preset-name" value="${escapeHtml(name)}" placeholder="Button name (e.g., Bold)">
-        <input type="text" class="preset-value" placeholder="Text value (e.g., AWESOME!)" value="${escapeHtml(value)}">
         <button onclick="document.getElementById('${id}').remove()" class="btn-danger btn-sm">×</button>
+        <div class="preset-value">
+            <label>Text Value</label>
+            <input type="text" placeholder="e.g., AWESOME!" value="${escapeHtml(value)}">
+        </div>
     `;
     list.appendChild(div);
 }
@@ -1232,8 +1585,8 @@ async function saveCaptureSettings() {
         const promptPresets = [];
         const listSelector = promptMode === 'suggestions' ? '#promptSuggestionsList' : '#promptPresetsList';
         document.querySelectorAll(`${listSelector} .preset-item`).forEach(item => {
-            const name = item.querySelector('.preset-name').value.trim();
-            const value = item.querySelector('.preset-value').value.trim();
+            const name = item.querySelector('.preset-name input').value.trim();
+            const value = item.querySelector('.preset-value input').value.trim();
             if (name && value) {
                 promptPresets.push({ name, value });
             }
@@ -1243,10 +1596,10 @@ async function saveCaptureSettings() {
         const customTextPresets = [];
         const textListSelector = customTextMode === 'suggestions' ? '#customTextSuggestionsList' : '#customTextPresetsList';
         document.querySelectorAll(`${textListSelector} .preset-item`).forEach(item => {
-            const name = item.querySelector('.preset-name').value.trim();
-            const value = item.querySelector('.preset-value').value.trim();
-            if (name && value) {
-                customTextPresets.push({ name, value });
+            const value = item.querySelector('.preset-value input').value.trim();
+            if (value) {
+                // Use the text value as both name and value
+                customTextPresets.push({ name: value, value: value });
             }
         });
         
@@ -1337,4 +1690,73 @@ switchTab = function(tab) {
         loadCaptureSettings();
     }
 };
+
+// ===== STICKER LIGHTBOX =====
+
+let lightboxStickers = [];
+let lightboxCurrentIndex = 0;
+
+function openLightbox(stickers, startIndex = 0) {
+    lightboxStickers = stickers;
+    lightboxCurrentIndex = startIndex;
+    updateLightbox();
+    document.getElementById('stickerLightbox').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox(event) {
+    if (!event || event.target.id === 'stickerLightbox' || event.target.classList.contains('lightbox-close')) {
+        document.getElementById('stickerLightbox').classList.remove('active');
+        document.body.style.overflow = 'auto';
+        lightboxStickers = [];
+        lightboxCurrentIndex = 0;
+    }
+}
+
+function updateLightbox() {
+    if (lightboxStickers.length === 0) return;
+    
+    const currentSticker = lightboxStickers[lightboxCurrentIndex];
+    document.getElementById('lightboxImage').src = currentSticker.url;
+    document.getElementById('lightboxCounter').textContent = `${lightboxCurrentIndex + 1} / ${lightboxStickers.length}`;
+    
+    // Update button states
+    document.getElementById('prevBtn').disabled = lightboxCurrentIndex === 0;
+    document.getElementById('nextBtn').disabled = lightboxCurrentIndex === lightboxStickers.length - 1;
+}
+
+function previousSticker() {
+    if (lightboxCurrentIndex > 0) {
+        lightboxCurrentIndex--;
+        updateLightbox();
+    }
+}
+
+function nextSticker() {
+    if (lightboxCurrentIndex < lightboxStickers.length - 1) {
+        lightboxCurrentIndex++;
+        updateLightbox();
+    }
+}
+
+function downloadCurrentSticker() {
+    if (lightboxStickers.length === 0) return;
+    
+    const currentSticker = lightboxStickers[lightboxCurrentIndex];
+    downloadImageFromUrl(currentSticker.url, currentSticker.filename);
+}
+
+// Keyboard navigation for lightbox
+document.addEventListener('keydown', (e) => {
+    const lightbox = document.getElementById('stickerLightbox');
+    if (lightbox.classList.contains('active')) {
+        if (e.key === 'Escape') {
+            closeLightbox();
+        } else if (e.key === 'ArrowLeft') {
+            previousSticker();
+        } else if (e.key === 'ArrowRight') {
+            nextSticker();
+        }
+    }
+});
 

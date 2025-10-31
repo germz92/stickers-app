@@ -94,9 +94,30 @@
                         Completed
                     </label>
                     <label>
+                        <input type="radio" name="statusFilter" value="rejected" onchange="filterSubmissions()">
+                        Rejected
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="failed" onchange="filterSubmissions()">
+                        Failed
+                    </label>
+                    <label>
                         <input type="radio" name="statusFilter" value="all" onchange="filterSubmissions()">
                         All
                     </label>
+                </div>
+
+                <div class="search-sort-controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search by name..." oninput="filterSubmissions()">
+                    </div>
+                    <div class="sort-box">
+                        <label for="sortOrder">Sort:</label>
+                        <select id="sortOrder" onchange="filterSubmissions()">
+                            <option value="oldest">Oldest to Newest</option>
+                            <option value="newest">Newest to Oldest</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div id="submissionsList" class="submissions-grid">
@@ -380,6 +401,20 @@
         <footer>
             <p>Powered by AI Stickers Generator with ComfyUI</p>
         </footer>
+    </div>
+
+    <!-- Sticker Lightbox -->
+    <div id="stickerLightbox" class="sticker-lightbox" onclick="closeLightbox(event)">
+        <div class="lightbox-content" onclick="event.stopPropagation()">
+            <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+            <img id="lightboxImage" class="lightbox-image" src="" alt="Sticker">
+            <div class="lightbox-nav">
+                <button id="prevBtn" onclick="previousSticker()">← Previous</button>
+                <span id="lightboxCounter" class="lightbox-counter"></span>
+                <button id="nextBtn" onclick="nextSticker()">Next →</button>
+                <button id="downloadBtn" onclick="downloadCurrentSticker()">Download</button>
+            </div>
+        </div>
     </div>
 
     <script src="js/config.js"></script>
