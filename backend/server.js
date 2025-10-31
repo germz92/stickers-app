@@ -30,13 +30,22 @@ const submissionSchema = new mongoose.Schema({
   customText: { type: String, default: '' },
   status: { 
     type: String, 
-    enum: ['pending', 'approved', 'processing', 'completed', 'rejected'],
+    enum: ['pending', 'approved', 'processing', 'completed', 'rejected', 'failed'],
     default: 'pending'
   },
   generatedImages: [{
     url: String, // S3 URL
     filename: String,
     createdAt: { type: Date, default: Date.now }
+  }],
+  approvedAt: { type: Date },
+  processingStartedAt: { type: Date },
+  retryCount: { type: Number, default: 0 },
+  failureReason: { type: String },
+  processingLogs: [{
+    timestamp: { type: Date, default: Date.now },
+    message: String,
+    level: { type: String, enum: ['info', 'warning', 'error'], default: 'info' }
   }],
   createdAt: { type: Date, default: Date.now },
   processedAt: { type: Date }
@@ -258,6 +267,56 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
   }
 });
 
+// SPECIFIC ROUTES MUST COME BEFORE PARAMETRIC ROUTES (:id)
+
+// Get stuck processing submissions (processor only)
+app.get('/api/submissions/stuck', authenticateProcessor, async (req, res) => {
+  try {
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    
+    const stuckSubmissions = await Submission.find({
+      status: 'processing',
+      processingStartedAt: { $lt: twoMinutesAgo }
+    });
+
+    // Reset them to approved
+    for (const sub of stuckSubmissions) {
+      sub.status = 'approved';
+      sub.retryCount += 1;
+      sub.processingLogs.push({
+        message: 'Reset from stuck processing state',
+        level: 'warning',
+        timestamp: new Date()
+      });
+      await sub.save();
+    }
+
+    res.json({ reset: stuckSubmissions.length, submissions: stuckSubmissions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get approved submissions for processing (local processor)
+app.get('/api/submissions/approved/queue', async (req, res) => {
+  try {
+    const { processorSecret } = req.query;
+    
+    if (processorSecret !== process.env.PROCESSOR_SECRET) {
+      return res.status(401).json({ error: 'Invalid processor secret' });
+    }
+
+    // Get approved submissions sorted by approvedAt (oldest first), then by retryCount (fewer retries first)
+    const submissions = await Submission.find({ status: 'approved' })
+      .sort({ approvedAt: 1, retryCount: 1 })
+      .limit(1); // Process one at a time for reliability
+    
+    res.json(submissions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single submission with full photo (admin page)
 app.get('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
@@ -332,7 +391,8 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
         density: 600 // 600 DPI for both X and Y
       })
       .png({ 
-        compressionLevel: 0, // No compression for print quality
+        compressionLevel: 9, // Maximum compression while maintaining quality
+        quality: 90, // Slight quality reduction to reduce file size
         density: 600
       })
       .toBuffer();
@@ -347,15 +407,16 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Update submission details (admin page)
-app.patch('/api/submissions/:id', authenticateAdmin, async (req, res) => {
+// Update submission details (admin page or processor)
+app.patch('/api/submissions/:id', authenticateAdminOrProcessor, async (req, res) => {
   try {
-    const { photo, prompt, customText } = req.body;
+    const { photo, prompt, customText, processingStartedAt } = req.body;
     
     const updateData = {};
     if (photo !== undefined) updateData.photo = photo;
     if (prompt !== undefined) updateData.prompt = prompt;
     if (customText !== undefined) updateData.customText = customText;
+    if (processingStartedAt !== undefined) updateData.processingStartedAt = processingStartedAt;
 
     const submission = await Submission.findByIdAndUpdate(
       req.params.id,
@@ -378,13 +439,199 @@ app.patch('/api/submissions/:id/status', authenticateAdminOrProcessor, async (re
   try {
     const { status } = req.body;
     
-    if (!['pending', 'approved', 'processing', 'completed', 'rejected'].includes(status)) {
+    if (!['pending', 'approved', 'processing', 'completed', 'rejected', 'failed'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
     const submission = await Submission.findByIdAndUpdate(
       req.params.id,
       { status, processedAt: status === 'completed' ? new Date() : undefined },
+      { new: true }
+    );
+
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    res.json(submission);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Approve submission (admin only)
+app.patch('/api/submissions/:id/approve', authenticateAdmin, async (req, res) => {
+  try {
+    const submission = await Submission.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status: 'approved',
+        approvedAt: new Date(),
+        retryCount: 0
+      },
+      { new: true }
+    );
+
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    res.json(submission);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add processing log (processor only)
+app.post('/api/submissions/:id/logs', authenticateProcessor, async (req, res) => {
+  try {
+    const { message, level } = req.body;
+    
+    const submission = await Submission.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $push: { 
+          processingLogs: {
+            message,
+            level: level || 'info',
+            timestamp: new Date()
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    res.json(submission);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Regenerate submission (admin only)
+app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) => {
+  try {
+    const originalSubmission = await Submission.findById(req.params.id);
+    
+    if (!originalSubmission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Create a duplicate submission for regeneration
+    const newSubmission = new Submission({
+      name: originalSubmission.name,
+      photo: originalSubmission.photo,
+      prompt: originalSubmission.prompt,
+      customText: originalSubmission.customText,
+      status: 'approved',
+      approvedAt: new Date(),
+      retryCount: 0,
+      generatedImages: [],
+      processingLogs: [{
+        message: `Regenerated from submission ${originalSubmission._id}`,
+        level: 'info',
+        timestamp: new Date()
+      }]
+    });
+
+    await newSubmission.save();
+
+    res.json(newSubmission);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add submission to queue (for completed/rejected/failed entries)
+app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id);
+    
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Set status to approved to add to queue
+    submission.status = 'approved';
+    submission.approvedAt = new Date();
+    submission.retryCount = 0;
+
+    await submission.save();
+
+    res.json(submission);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify and fix submission status (admin only)
+app.post('/api/submissions/:id/verify-status', authenticateAdmin, async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id);
+    
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    let fixed = false;
+    let message = '';
+
+    // If stuck in processing but has generated images, mark as completed
+    if (submission.status === 'processing' && submission.generatedImages && submission.generatedImages.length >= 4) {
+      submission.status = 'completed';
+      submission.processedAt = new Date();
+      await submission.save();
+      fixed = true;
+      message = `Fixed: Found ${submission.generatedImages.length} images, marked as completed`;
+    } 
+    // If stuck in processing with no images for over 2 minutes, reset to approved
+    else if (submission.status === 'processing' && submission.processingStartedAt) {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+      if (submission.processingStartedAt < twoMinutesAgo) {
+        submission.status = 'approved';
+        submission.retryCount = (submission.retryCount || 0) + 1;
+        submission.processingStartedAt = undefined;
+        await submission.save();
+        fixed = true;
+        message = 'Reset stuck processing submission to approved';
+      } else {
+        message = 'Still processing (less than 2 minutes)';
+      }
+    } else {
+      message = `Status ${submission.status} is correct`;
+    }
+
+    res.json({ 
+      fixed, 
+      message,
+      submission 
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark submission as failed (processor only)
+app.patch('/api/submissions/:id/fail', authenticateProcessor, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    
+    const submission = await Submission.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status: 'failed',
+        failureReason: reason,
+        $push: {
+          processingLogs: {
+            message: `Failed: ${reason}`,
+            level: 'error',
+            timestamp: new Date()
+          }
+        }
+      },
       { new: true }
     );
 
@@ -479,25 +726,6 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
     res.json(submission);
   } catch (error) {
     console.error('Error updating submission with images:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get approved submissions for processing (local processor)
-app.get('/api/submissions/approved/queue', async (req, res) => {
-  try {
-    const { processorSecret } = req.query;
-    
-    if (processorSecret !== process.env.PROCESSOR_SECRET) {
-      return res.status(401).json({ error: 'Invalid processor secret' });
-    }
-
-    const submissions = await Submission.find({ status: 'approved' })
-      .sort({ createdAt: 1 })
-      .limit(10);
-    
-    res.json(submissions);
-  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
