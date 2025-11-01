@@ -1158,8 +1158,11 @@ function downloadImage(base64Data, filename) {
 // Download image from URL via backend proxy (bypasses CORS)
 async function downloadImageFromUrl(url, filename) {
     try {
+        console.log('🔽 Starting download...', { url, filename });
+        
         // Use backend proxy to download S3 images and bypass CORS
         const proxyUrl = `${API_BASE_URL}/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+        console.log('📡 Calling backend proxy:', proxyUrl);
         
         const response = await fetch(proxyUrl, {
             headers: {
@@ -1167,11 +1170,15 @@ async function downloadImageFromUrl(url, filename) {
             }
         });
         
+        console.log('📥 Backend response status:', response.status);
+        
         if (!response.ok) {
             throw new Error('Download failed');
         }
         
         const blob = await response.blob();
+        console.log('💾 Received blob, size:', blob.size, 'bytes');
+        
         const blobUrl = URL.createObjectURL(blob);
         
         const link = document.createElement('a');
@@ -1181,10 +1188,12 @@ async function downloadImageFromUrl(url, filename) {
         link.click();
         document.body.removeChild(link);
         
+        console.log('✅ Download triggered successfully');
+        
         // Clean up blob URL
         setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
     } catch (error) {
-        console.error('Download error:', error);
+        console.error('❌ Download error:', error);
         alert('Failed to download image. Please try again.');
     }
 }
