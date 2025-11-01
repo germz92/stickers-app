@@ -32,16 +32,21 @@
                 <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
                 <h1>Stickers Generator - Admin Panel</h1>
                 <div class="header-controls">
-                    <button onclick="checkComfyUIStatus()" class="btn-secondary btn-sm">
-                        Check ComfyUI
-                    </button>
-                    <span id="comfyStatus" class="status-indicator">Unknown</span>
                     <button onclick="logout()" class="btn-danger btn-sm">
                         Logout
                     </button>
                 </div>
             </div>
         </header>
+
+        <!-- System Status Banner -->
+        <div id="systemStatusBanner" class="system-status-banner" style="display: none;">
+            <div class="container">
+                <span class="status-icon">⚠️</span>
+                <span id="systemStatusMessage" class="status-message-text"></span>
+                <button onclick="dismissStatusBanner()" class="btn-dismiss">×</button>
+            </div>
+        </div>
 
         <main class="container">
             <!-- Tabs -->
@@ -399,7 +404,7 @@
         </main>
 
         <footer>
-            <p>Powered by AI Stickers Generator with ComfyUI</p>
+            <p>Powered by Lumetry Media</p>
         </footer>
     </div>
 

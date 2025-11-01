@@ -22,7 +22,66 @@ header {
     background: rgba(18, 18, 18, 0.95);
     border-bottom: 1px solid rgba(0, 229, 255, 0.1);
     backdrop-filter: blur(10px);
+    margin-bottom: 0;
+}
+
+/* System Status Banner */
+.system-status-banner {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 152, 0, 0.15));
+    border-bottom: 1px solid rgba(255, 193, 7, 0.3);
+    padding: 12px 0;
     margin-bottom: 30px;
+}
+
+.system-status-banner .container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.system-status-banner.error {
+    background: linear-gradient(135deg, rgba(255, 85, 85, 0.15), rgba(255, 0, 0, 0.15));
+    border-bottom-color: rgba(255, 85, 85, 0.3);
+}
+
+.system-status-banner .status-icon {
+    font-size: 1.2em;
+}
+
+.system-status-banner .status-message-text {
+    flex: 1;
+    color: #ffc107;
+    font-size: 0.9em;
+}
+
+.system-status-banner.error .status-message-text {
+    color: #ff5555;
+}
+
+.system-status-banner .btn-dismiss {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 1.5em;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.system-status-banner .btn-dismiss:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+main.container {
+    margin-top: 30px;
 }
 
 header .container {

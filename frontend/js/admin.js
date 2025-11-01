@@ -46,7 +46,6 @@ async function login() {
             // Initialize
             loadSubmissions();
             loadPresets();
-            checkComfyUIStatus();
             startPolling();
         } else {
             errorDiv.textContent = data.error || 'Invalid password';
@@ -82,7 +81,6 @@ async function verifyToken() {
             // Initialize
             loadSubmissions();
             loadPresets();
-            checkComfyUIStatus();
             startPolling();
         } else {
             localStorage.removeItem('adminToken');
@@ -1066,7 +1064,7 @@ function updateGenerationProgress(submission) {
             break;
         case 'processing':
             progressBar.style.width = '60%';
-            progressStatus.textContent = 'Processing with ComfyUI... (this may take 30-60 seconds)';
+            progressStatus.textContent = 'Processing... (this may take 30-60 seconds)';
             document.getElementById('step1').classList.add('complete');
             document.getElementById('step2').classList.add('active');
             break;
@@ -1352,15 +1350,114 @@ async function deletePreset(id) {
     }
 }
 
-// Check ComfyUI Status (placeholder - actual check would be done by processor)
-function checkComfyUIStatus() {
-    const statusEl = document.getElementById('comfyStatus');
-    statusEl.textContent = '⚠️ Check via local processor';
-    statusEl.className = 'status-indicator';
-    
-    // The actual ComfyUI status check should be done by the local processor
-    // and could be stored in the database or communicated via another channel
+// System Health Monitoring
+let statusBannerDismissed = false;
+
+async function checkSystemHealth() {
+    try {
+        // Check processor heartbeat
+        const response = await fetch(`${API_BASE_URL}/processor/status`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+            }
+        });
+        
+        if (!response.ok) {
+            return;
+        }
+        
+        const status = await response.json();
+        
+        // Check for stuck submissions
+        const submissionsResponse = await fetch(`${API_BASE_URL}/submissions`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+            }
+        });
+        
+        if (!submissionsResponse.ok) {
+            return;
+        }
+        
+        const submissions = await submissionsResponse.json();
+        const stuckInApproved = submissions.filter(sub => {
+            if (sub.status !== 'approved') return false;
+            const approvedTime = new Date(sub.approvedAt);
+            const now = new Date();
+            return (now - approvedTime) > 60000; // Stuck for more than 1 minute
+        });
+        
+        const stuckInProcessing = submissions.filter(sub => {
+            if (sub.status !== 'processing') return false;
+            const processingTime = new Date(sub.processingStartedAt);
+            const now = new Date();
+            return (now - processingTime) > 120000; // Stuck for more than 2 minutes
+        });
+        
+        // Display warnings
+        if (!status.isHealthy) {
+            showSystemStatusBanner(
+                'Processing service is not responding. New submissions will not be processed automatically.',
+                'error'
+            );
+        } else if (stuckInProcessing.length > 0) {
+            showSystemStatusBanner(
+                `${stuckInProcessing.length} submission(s) stuck in processing. There may be an issue with the generation service.`,
+                'warning'
+            );
+        } else if (stuckInApproved.length > 0 && status.isHealthy) {
+            showSystemStatusBanner(
+                `${stuckInApproved.length} approved submission(s) waiting to be processed. This is normal during high volume.`,
+                'info'
+            );
+        } else if (!statusBannerDismissed) {
+            hideSystemStatusBanner();
+        }
+    } catch (error) {
+        console.error('System health check error:', error);
+    }
 }
+
+function showSystemStatusBanner(message, type = 'warning') {
+    if (statusBannerDismissed) return;
+    
+    const banner = document.getElementById('systemStatusBanner');
+    const messageEl = document.getElementById('systemStatusMessage');
+    const icon = banner.querySelector('.status-icon');
+    
+    if (!banner || !messageEl) return;
+    
+    messageEl.textContent = message;
+    banner.classList.remove('error', 'warning', 'info');
+    
+    if (type === 'error') {
+        banner.classList.add('error');
+        icon.textContent = '🔴';
+    } else if (type === 'warning') {
+        icon.textContent = '⚠️';
+    } else {
+        icon.textContent = 'ℹ️';
+    }
+    
+    banner.style.display = 'block';
+}
+
+function hideSystemStatusBanner() {
+    const banner = document.getElementById('systemStatusBanner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
+function dismissStatusBanner() {
+    statusBannerDismissed = true;
+    hideSystemStatusBanner();
+}
+
+// Start monitoring system health every 30 seconds
+setInterval(checkSystemHealth, 30000);
+// Initial check after 5 seconds
+setTimeout(checkSystemHealth, 5000);
 
 // Show Status Message
 function showStatus(message, type, tabId = null) {
