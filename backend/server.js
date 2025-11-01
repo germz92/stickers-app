@@ -362,7 +362,7 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
     
     // Extract ComfyUI number from filename
     // Example: "sticker_1_ComfyUI_temp_tqhca_00073_.png" -> "00073"
-    let imageNumber = Date.now().toString();
+    let imageNumber = '00000';
     if (filename) {
       // Look for 5-digit number pattern in the filename
       const numberMatch = filename.match(/(\d{5})/);
@@ -371,8 +371,8 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
       }
     }
     
-    // Create filename: lumsticker[number].png (no underscore, no "s")
-    const downloadFilename = `lumsticker${imageNumber}.png`;
+    // Create filename: LumStickers00277.png
+    const downloadFilename = `LumStickers${imageNumber}.png`;
     
     // Get image metadata to calculate aspect ratio
     const metadata = await sharp(imageBuffer).metadata();
