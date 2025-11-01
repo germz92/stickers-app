@@ -79,31 +79,31 @@
                 <div class="filter-controls">
                     <label>
                         <input type="radio" name="statusFilter" value="pending" checked onchange="filterSubmissions()">
-                        Pending
+                        <span>Pending</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="approved" onchange="filterSubmissions()">
-                        Approved
+                        <span>Approved</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="processing" onchange="filterSubmissions()">
-                        Processing
+                        <span>Processing</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="completed" onchange="filterSubmissions()">
-                        Completed
+                        <span>Completed</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="rejected" onchange="filterSubmissions()">
-                        Rejected
+                        <span>Rejected</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="failed" onchange="filterSubmissions()">
-                        Failed
+                        <span>Failed</span>
                     </label>
                     <label>
                         <input type="radio" name="statusFilter" value="all" onchange="filterSubmissions()">
-                        All
+                        <span>All</span>
                     </label>
                 </div>
 
@@ -407,10 +407,10 @@
     <div id="stickerLightbox" class="sticker-lightbox" onclick="closeLightbox(event)">
         <div class="lightbox-content" onclick="event.stopPropagation()">
             <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+            <span id="lightboxCounter" class="lightbox-counter"></span>
             <img id="lightboxImage" class="lightbox-image" src="" alt="Sticker">
             <div class="lightbox-nav">
                 <button id="prevBtn" onclick="previousSticker()">← Previous</button>
-                <span id="lightboxCounter" class="lightbox-counter"></span>
                 <button id="nextBtn" onclick="nextSticker()">Next →</button>
                 <button id="downloadBtn" onclick="downloadCurrentSticker()">Download</button>
             </div>

@@ -1176,6 +1176,17 @@ async function downloadImageFromUrl(url, filename) {
             throw new Error('Download failed');
         }
         
+        // Extract filename from Content-Disposition header
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let downloadFilename = filename; // fallback to original
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="(.+?)"/);
+            if (filenameMatch) {
+                downloadFilename = filenameMatch[1];
+                console.log('📝 Using filename from backend:', downloadFilename);
+            }
+        }
+        
         const blob = await response.blob();
         console.log('💾 Received blob, size:', blob.size, 'bytes');
         
@@ -1183,7 +1194,7 @@ async function downloadImageFromUrl(url, filename) {
         
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.download = filename;
+        link.download = downloadFilename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
