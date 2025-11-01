@@ -254,14 +254,31 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
 // Get all submissions (admin page)
 app.get('/api/submissions', authenticateAdmin, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, limit, skip } = req.query;
     const query = status ? { status } : {};
+    
+    // Pagination parameters
+    const limitNum = parseInt(limit) || 50; // Default 50 per page
+    const skipNum = parseInt(skip) || 0;
+    
+    // Get total count for pagination info
+    const total = await Submission.countDocuments(query);
     
     const submissions = await Submission.find(query)
       .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .skip(skipNum)
       .select('-photo'); // Don't send full photos in list, only thumbnails
     
-    res.json(submissions);
+    res.json({
+      submissions,
+      pagination: {
+        total,
+        limit: limitNum,
+        skip: skipNum,
+        hasMore: (skipNum + limitNum) < total
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
