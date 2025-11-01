@@ -947,6 +947,27 @@ app.put('/api/capture-settings', authenticateAdmin, async (req, res) => {
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Root route
+// Processor heartbeat tracking
+let lastProcessorHeartbeat = null;
+
+// Processor heartbeat endpoint
+app.post('/api/processor/heartbeat', authenticateProcessor, (req, res) => {
+  lastProcessorHeartbeat = new Date();
+  res.json({ success: true, timestamp: lastProcessorHeartbeat });
+});
+
+// Check processor status
+app.get('/api/processor/status', authenticateAdmin, (req, res) => {
+  const now = new Date();
+  const isHealthy = lastProcessorHeartbeat && (now - lastProcessorHeartbeat) < 60000; // 60 seconds
+  
+  res.json({
+    isHealthy,
+    lastHeartbeat: lastProcessorHeartbeat,
+    timeSinceLastHeartbeat: lastProcessorHeartbeat ? now - lastProcessorHeartbeat : null
+  });
+});
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
