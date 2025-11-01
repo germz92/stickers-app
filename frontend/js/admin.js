@@ -5,6 +5,14 @@ let currentImage = null;
 let allSubmissions = [];
 let presets = [];
 let pollInterval = null;
+
+// Pagination state
+let paginationState = {
+    total: 0,
+    loaded: 0,
+    hasMore: false,
+    limit: 50
+};
 let isPolling = false;
 
 // Check for existing token on page load
@@ -117,9 +125,12 @@ function switchTab(tabName) {
 }
 
 // Load Submissions
-async function loadSubmissions(silent = false) {
+async function loadSubmissions(silent = false, append = false) {
     try {
-        const response = await fetch(`${API_BASE_URL}/submissions`, {
+        const skip = append ? allSubmissions.length : 0;
+        const url = `${API_BASE_URL}/submissions?limit=${paginationState.limit}&skip=${skip}`;
+        
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -127,14 +138,27 @@ async function loadSubmissions(silent = false) {
 
         if (!response.ok) throw new Error('Failed to load submissions');
 
-        const newSubmissions = await response.json();
+        const data = await response.json();
+        const newSubmissions = data.submissions || data; // Handle both old and new format
+        const pagination = data.pagination || { total: newSubmissions.length, hasMore: false };
         
-        // Check if there are actual changes
-        const hasChanges = JSON.stringify(allSubmissions) !== JSON.stringify(newSubmissions);
+        // Update pagination state
+        paginationState.total = pagination.total;
+        paginationState.hasMore = pagination.hasMore;
         
-        if (hasChanges || !silent) {
+        if (append) {
+            // Append new submissions
+            allSubmissions = [...allSubmissions, ...newSubmissions];
+        } else {
+            // Replace all submissions
             allSubmissions = newSubmissions;
+        }
+        
+        paginationState.loaded = allSubmissions.length;
+        
+        if (!silent) {
             filterSubmissions();
+            updateLoadMoreButton();
             
             // Update queue count
             const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
@@ -145,6 +169,50 @@ async function loadSubmissions(silent = false) {
             console.error('Error loading submissions:', error);
             document.getElementById('submissionsList').innerHTML = 
                 '<p class="error">Failed to load submissions. Please try again.</p>';
+        }
+    }
+}
+
+// Load more submissions
+async function loadMoreSubmissions() {
+    const btn = document.getElementById('loadMoreBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+    }
+    
+    await loadSubmissions(false, true); // silent=false, append=true
+    
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Load More';
+    }
+}
+
+// Update load more button visibility
+function updateLoadMoreButton() {
+    let btn = document.getElementById('loadMoreBtn');
+    
+    if (!btn) {
+        // Create button if it doesn't exist
+        const container = document.getElementById('loadMoreContainer');
+        if (container) {
+            btn = document.createElement('button');
+            btn.id = 'loadMoreBtn';
+            btn.className = 'btn-secondary';
+            btn.textContent = 'Load More';
+            btn.onclick = loadMoreSubmissions;
+            container.appendChild(btn);
+        }
+    }
+    
+    if (btn) {
+        btn.style.display = paginationState.hasMore ? 'block' : 'none';
+        
+        // Update button text with count
+        if (paginationState.hasMore) {
+            const remaining = paginationState.total - paginationState.loaded;
+            btn.textContent = `Load More (${remaining} remaining)`;
         }
     }
 }
@@ -1379,7 +1447,8 @@ async function checkSystemHealth() {
             return;
         }
         
-        const submissions = await submissionsResponse.json();
+        const data = await submissionsResponse.json();
+        const submissions = data.submissions || data; // Handle both old and new format
         const stuckInApproved = submissions.filter(sub => {
             if (sub.status !== 'approved') return false;
             const approvedTime = new Date(sub.approvedAt);
