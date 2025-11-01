@@ -382,20 +382,124 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
     const targetHeight = 1500; // 2.5 inches * 600 DPI
     const targetWidth = Math.round(targetHeight * aspectRatio);
     
-    const processedImage = await sharp(imageBuffer)
+    console.log('🎨 Starting download processing...');
+    
+    // Step 1: Resize
+    console.log(`📏 Resizing to ${targetWidth}x${targetHeight}px (2.5" @ 600 DPI)`);
+    let processedImage = await sharp(imageBuffer)
       .resize(targetWidth, targetHeight, {
-        fit: 'fill', // Ensure exact dimensions
-        kernel: 'lanczos3' // High-quality resampling
-      })
-      .withMetadata({
-        density: 600 // 600 DPI for both X and Y
-      })
-      .png({ 
-        compressionLevel: 9, // Maximum compression while maintaining quality
-        quality: 90, // Slight quality reduction to reduce file size
-        density: 600
+        fit: 'fill',
+        kernel: 'lanczos3'
       })
       .toBuffer();
+    
+    // Step 2: Conservative alpha cleanup
+    console.log('🔧 Cleaning alpha edges (RGB untouched)...');
+    const { data, info } = await sharp(processedImage)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    
+    const width = info.width;
+    const height = info.height;
+    
+    // Simple alpha threshold - removes semi-transparent fringing
+    for (let i = 0; i < width * height; i++) {
+      const alphaIdx = i * 4 + 3;
+      data[alphaIdx] = data[alphaIdx] > 240 ? 255 : 0;
+    }
+    
+    // Step 3: Fill interior holes only (not exterior edges)
+    console.log('🔧 Filling interior holes only...');
+    
+    // Create a map to track exterior transparent areas
+    const isExterior = new Uint8Array(width * height);
+    
+    // Flood fill from all edges to mark exterior transparent pixels
+    const queue = [];
+    
+    // Add all transparent edge pixels to queue
+    for (let x = 0; x < width; x++) {
+      // Top edge
+      if (data[x * 4 + 3] === 0) {
+        queue.push(x);
+        isExterior[x] = 1;
+      }
+      // Bottom edge
+      const bottomIdx = (height - 1) * width + x;
+      if (data[bottomIdx * 4 + 3] === 0) {
+        queue.push(bottomIdx);
+        isExterior[bottomIdx] = 1;
+      }
+    }
+    for (let y = 0; y < height; y++) {
+      // Left edge
+      const leftIdx = y * width;
+      if (data[leftIdx * 4 + 3] === 0) {
+        queue.push(leftIdx);
+        isExterior[leftIdx] = 1;
+      }
+      // Right edge
+      const rightIdx = y * width + (width - 1);
+      if (data[rightIdx * 4 + 3] === 0) {
+        queue.push(rightIdx);
+        isExterior[rightIdx] = 1;
+      }
+    }
+    
+    // Flood fill to mark all exterior transparent areas
+    while (queue.length > 0) {
+      const idx = queue.shift();
+      const x = idx % width;
+      const y = Math.floor(idx / width);
+      
+      // Check 4 neighbors
+      const neighbors = [
+        { nx: x - 1, ny: y },
+        { nx: x + 1, ny: y },
+        { nx: x, ny: y - 1 },
+        { nx: x, ny: y + 1 }
+      ];
+      
+      for (const { nx, ny } of neighbors) {
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const nIdx = ny * width + nx;
+          // If neighbor is transparent and not yet marked as exterior
+          if (data[nIdx * 4 + 3] === 0 && isExterior[nIdx] === 0) {
+            isExterior[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+      }
+    }
+    
+    // Fill interior holes: transparent pixels NOT marked as exterior
+    for (let i = 0; i < width * height; i++) {
+      if (data[i * 4 + 3] === 0 && isExterior[i] === 0) {
+        // This is an interior hole - fill it
+        data[i * 4 + 3] = 255;
+      }
+    }
+    
+    // Rebuild
+    processedImage = await sharp(data, {
+      raw: {
+        width: info.width,
+        height: info.height,
+        channels: 4
+      }
+    })
+    .withMetadata({
+      density: 600
+    })
+    .png({ 
+      compressionLevel: 9,
+      quality: 90,
+      density: 600
+    })
+    .toBuffer();
+    
+    console.log('✅ Download ready!');
     
     // Send the processed image with correct headers
     res.setHeader('Content-Type', 'image/png');
