@@ -206,8 +206,7 @@ async function loadSubmissions(silent = false, append = false) {
         paginationState.loaded = allSubmissions.length;
         
         // Always update the display (even during silent refresh)
-        filterSubmissions();
-        updateLoadMoreButton();
+        filterSubmissions(); // This will call updateLoadMoreButton() after filtering
         
         // Update queue count
         const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
@@ -255,10 +254,17 @@ function updateLoadMoreButton() {
     }
     
     if (btn) {
-        btn.style.display = paginationState.hasMore ? 'block' : 'none';
+        // Check if there are actually visible submissions (not "No submissions found")
+        const submissionsList = document.getElementById('submissionsList');
+        const hasVisibleSubmissions = submissionsList && 
+            submissionsList.querySelector('.submission-card') !== null;
+        
+        // Only show if there's more data AND we have visible submissions
+        const shouldShow = paginationState.hasMore && paginationState.total > 0 && hasVisibleSubmissions;
+        btn.style.display = shouldShow ? 'block' : 'none';
         
         // Update button text with count
-        if (paginationState.hasMore) {
+        if (shouldShow) {
             const remaining = paginationState.total - paginationState.loaded;
             btn.textContent = `Load More (${remaining} remaining)`;
         }
@@ -357,6 +363,7 @@ function filterSubmissions() {
     });
     
     displaySubmissions(filtered);
+    updateLoadMoreButton(); // Update button after filtering to check if there are visible results
 }
 
 // Display Submissions
