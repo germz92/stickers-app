@@ -267,8 +267,8 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
     const submissions = await Submission.find(query)
       .sort({ createdAt: -1 })
       .limit(limitNum)
-      .skip(skipNum)
-      .select('-photo'); // Don't send full photos in list, only thumbnails
+      .skip(skipNum);
+    // Photo URLs (S3) are now included for fast loading
     
     res.json({
       submissions,
@@ -675,9 +675,17 @@ app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Set status to approved to add to queue
-    submission.status = 'approved';
-    submission.approvedAt = new Date();
+    // For completed/rejected/failed: set to pending (requires manual approval)
+    // For processing: set to approved (retry immediately)
+    if (submission.status === 'completed' || submission.status === 'rejected' || submission.status === 'failed') {
+      submission.status = 'pending';
+      // Clear approval timestamp since it needs re-approval
+      submission.approvedAt = null;
+    } else {
+      submission.status = 'approved';
+      submission.approvedAt = new Date();
+    }
+    
     submission.retryCount = 0;
 
     await submission.save();
