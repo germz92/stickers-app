@@ -87,29 +87,32 @@
                         <span>Pending</span>
                     </label>
                     <label>
-                        <input type="radio" name="statusFilter" value="approved" onchange="filterSubmissions()">
-                        <span>Approved</span>
-                    </label>
-                    <label>
-                        <input type="radio" name="statusFilter" value="processing" onchange="filterSubmissions()">
-                        <span>Processing</span>
-                    </label>
-                    <label>
                         <input type="radio" name="statusFilter" value="completed" onchange="filterSubmissions()">
                         <span>Completed</span>
                     </label>
-                    <label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="approved" onchange="filterSubmissions()">
+                        <span>Approved</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="processing" onchange="filterSubmissions()">
+                        <span>Processing</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
                         <input type="radio" name="statusFilter" value="rejected" onchange="filterSubmissions()">
                         <span>Rejected</span>
                     </label>
-                    <label>
+                    <label class="extra-tab" style="display: none;">
                         <input type="radio" name="statusFilter" value="failed" onchange="filterSubmissions()">
                         <span>Failed</span>
                     </label>
-                    <label>
+                    <label class="extra-tab" style="display: none;">
                         <input type="radio" name="statusFilter" value="all" onchange="filterSubmissions()">
                         <span>All</span>
                     </label>
+                    <button id="toggleTabsBtn" onclick="toggleExtraTabs()" class="btn-secondary btn-sm toggle-tabs-btn">
+                        Show All Tabs
+                    </button>
                 </div>
 
                 <div class="search-sort-controls">
@@ -422,6 +425,27 @@
                 <button id="prevBtn" onclick="previousSticker()">← Previous</button>
                 <button id="nextBtn" onclick="nextSticker()">Next →</button>
                 <button id="downloadBtn" onclick="downloadCurrentSticker()">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="customAlert" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content">
+            <div class="custom-modal-icon">⚠️</div>
+            <p id="customAlertMessage" class="custom-modal-message"></p>
+            <button id="customAlertOk" class="btn-primary custom-modal-btn">OK</button>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="customConfirm" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content">
+            <div class="custom-modal-icon">❓</div>
+            <p id="customConfirmMessage" class="custom-modal-message"></p>
+            <div class="custom-modal-buttons">
+                <button id="customConfirmYes" class="btn-success custom-modal-btn">Yes</button>
+                <button id="customConfirmNo" class="btn-secondary custom-modal-btn">No</button>
             </div>
         </div>
     </div>

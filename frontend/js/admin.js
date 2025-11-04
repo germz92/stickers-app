@@ -6,6 +6,55 @@ let allSubmissions = [];
 let presets = [];
 let pollInterval = null;
 
+// Custom Alert & Confirm Functions
+function customAlert(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customAlert');
+        const messageEl = document.getElementById('customAlertMessage');
+        const okBtn = document.getElementById('customAlertOk');
+        
+        messageEl.textContent = message;
+        modal.style.display = 'flex';
+        
+        const closeHandler = () => {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', closeHandler);
+            resolve();
+        };
+        
+        okBtn.addEventListener('click', closeHandler);
+    });
+}
+
+function customConfirm(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customConfirm');
+        const messageEl = document.getElementById('customConfirmMessage');
+        const yesBtn = document.getElementById('customConfirmYes');
+        const noBtn = document.getElementById('customConfirmNo');
+        
+        messageEl.textContent = message;
+        modal.style.display = 'flex';
+        
+        const yesHandler = () => {
+            modal.style.display = 'none';
+            yesBtn.removeEventListener('click', yesHandler);
+            noBtn.removeEventListener('click', noHandler);
+            resolve(true);
+        };
+        
+        const noHandler = () => {
+            modal.style.display = 'none';
+            yesBtn.removeEventListener('click', yesHandler);
+            noBtn.removeEventListener('click', noHandler);
+            resolve(false);
+        };
+        
+        yesBtn.addEventListener('click', yesHandler);
+        noBtn.addEventListener('click', noHandler);
+    });
+}
+
 // Pagination state
 let paginationState = {
     total: 0,
@@ -156,14 +205,13 @@ async function loadSubmissions(silent = false, append = false) {
         
         paginationState.loaded = allSubmissions.length;
         
-        if (!silent) {
-            filterSubmissions();
-            updateLoadMoreButton();
-            
-            // Update queue count
-            const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
-            document.getElementById('queueCount').textContent = pendingCount;
-        }
+        // Always update the display (even during silent refresh)
+        filterSubmissions();
+        updateLoadMoreButton();
+        
+        // Update queue count
+        const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
+        document.getElementById('queueCount').textContent = pendingCount;
     } catch (error) {
         if (!silent) {
             console.error('Error loading submissions:', error);
@@ -245,6 +293,19 @@ function stopPolling() {
 // Track previous filter to detect changes
 let previousFilter = 'pending';
 
+// Toggle extra tabs visibility
+function toggleExtraTabs() {
+    const extraTabs = document.querySelectorAll('.extra-tab');
+    const btn = document.getElementById('toggleTabsBtn');
+    const isHidden = extraTabs[0].style.display === 'none';
+    
+    extraTabs.forEach(tab => {
+        tab.style.display = isHidden ? 'flex' : 'none';
+    });
+    
+    btn.textContent = isHidden ? 'Hide Extra Tabs' : 'Show All Tabs';
+}
+
 // Filter Submissions
 function filterSubmissions() {
     const filter = document.querySelector('input[name="statusFilter"]:checked').value;
@@ -313,15 +374,16 @@ function displaySubmissions(submissions) {
             return `
                 <div class="submission-card completed-card">
                     <div class="completed-preview">
-                        <img id="thumb-${sub._id}" 
-                             class="submission-thumbnail-small" 
-                             src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect fill='%23f0f0f0' width='100' height='100'/></svg>"
-                             alt="${sub.name}">
+                        <img class="submission-thumbnail-small" 
+                             src="${sub.photo || 'data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'><rect fill=\'%23f0f0f0\' width=\'100\' height=\'100\'/></svg>'}"
+                             alt="${sub.name}"
+                             loading="lazy">
                         <div class="sticker-thumbnails">
                             ${sub.generatedImages.slice(0, 4).map((img, idx) => `
                                 <img src="${img.url}" 
                                      alt="Sticker ${idx + 1}" 
-                                     class="sticker-thumb" 
+                                     class="sticker-thumb"
+                                     loading="lazy"
                                      onclick='openLightbox(${JSON.stringify(sub.generatedImages)}, ${idx})'>
                             `).join('')}
                         </div>
@@ -350,10 +412,10 @@ function displaySubmissions(submissions) {
         } else if (sub.status === 'failed') {
             return `
                 <div class="submission-card failed-card">
-                    <img id="thumb-${sub._id}" 
-                         class="submission-thumbnail" 
-                         src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><rect fill='%23f0f0f0' width='300' height='200'/></svg>"
-                         alt="${sub.name}">
+                    <img class="submission-thumbnail" 
+                         src="${sub.photo || 'data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'300\' height=\'200\'><rect fill=\'%23f0f0f0\' width=\'300\' height=\'200\'/></svg>'}"
+                         alt="${sub.name}"
+                         loading="lazy">
                     <div class="submission-info">
                         <h3>${escapeHtml(sub.name)}</h3>
                         <p><strong>Submitted:</strong> ${new Date(sub.createdAt).toLocaleString()}</p>
@@ -375,10 +437,10 @@ function displaySubmissions(submissions) {
             // Default display for pending, approved, processing
             return `
                 <div class="submission-card">
-                    <img id="thumb-${sub._id}" 
-                         class="submission-thumbnail" 
-                         src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><rect fill='%23f0f0f0' width='300' height='200'/></svg>"
-                         alt="${sub.name}">
+                    <img class="submission-thumbnail" 
+                         src="${sub.photo || 'data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'300\' height=\'200\'><rect fill=\'%23f0f0f0\' width=\'300\' height=\'200\'/></svg>'}"
+                         alt="${sub.name}"
+                         loading="lazy">
                     <div class="submission-info">
                         <h3>${escapeHtml(sub.name)}</h3>
                         <p><strong>Submitted:</strong> ${new Date(sub.createdAt).toLocaleString()}</p>
@@ -419,10 +481,7 @@ function displaySubmissions(submissions) {
         }
     }).join('');
     
-    // Load thumbnails asynchronously for all entries
-    submissions.forEach(sub => {
-        loadThumbnail(sub._id);
-    });
+    // Thumbnails now load directly from S3 URLs - no need for separate API calls
 }
 
 // Load thumbnail for a submission
@@ -486,7 +545,7 @@ async function approveSubmission(id) {
 
 // Reject Submission
 async function rejectSubmission(id) {
-    if (!confirm('Are you sure you want to reject this submission?')) return;
+    if (!await customConfirm('Are you sure you want to reject this submission?')) return;
     
     try {
         // Optimistic UI update
@@ -523,7 +582,7 @@ async function rejectSubmission(id) {
 
 // Delete Submission
 async function deleteSubmission(id) {
-    if (!confirm('Are you sure you want to delete this submission? This cannot be undone.')) return;
+    if (!await customConfirm('Are you sure you want to delete this submission? This cannot be undone.')) return;
     
     try {
         // Optimistic UI update
@@ -820,7 +879,7 @@ function closeCompletedModal() {
 
 // Regenerate submission
 async function regenerateSubmission(id) {
-    if (!confirm('Create a duplicate of this submission and regenerate? The original will be kept.')) return;
+    if (!await customConfirm('Create a duplicate of this submission and regenerate? The original will be kept.')) return;
     
     try {
         const response = await fetch(`${API_BASE_URL}/submissions/${id}/regenerate`, {
@@ -845,7 +904,15 @@ async function regenerateSubmission(id) {
 
 // Add submission to queue
 async function addToQueue(id) {
-    if (!confirm('Add this submission to the processing queue?')) return;
+    // Get the submission to check its current status
+    const submission = allSubmissions.find(s => s._id === id);
+    const isPendingStatus = submission && (submission.status === 'completed' || submission.status === 'rejected' || submission.status === 'failed');
+    
+    const message = isPendingStatus 
+        ? 'Move this submission back to Pending? (You will need to approve it again)'
+        : 'Add this submission to the processing queue?';
+    
+    if (!await customConfirm(message)) return;
     
     try {
         const response = await fetch(`${API_BASE_URL}/submissions/${id}/add-to-queue`, {
@@ -857,7 +924,10 @@ async function addToQueue(id) {
         
         if (response.ok) {
             await loadSubmissions();
-            showStatus('Submission added to queue!', 'success');
+            const successMsg = isPendingStatus 
+                ? 'Submission moved to Pending. You can now review and approve it.' 
+                : 'Submission added to queue!';
+            showStatus(successMsg, 'success');
         } else {
             showStatus('Failed to add submission to queue', 'error');
         }
@@ -1271,7 +1341,7 @@ async function downloadImageFromUrl(url, filename) {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
     } catch (error) {
         console.error('❌ Download error:', error);
-        alert('Failed to download image. Please try again.');
+        await customAlert('Failed to download image. Please try again.');
     }
 }
 
@@ -1398,7 +1468,7 @@ async function addPreset() {
 
 // Delete Preset
 async function deletePreset(id) {
-    if (!confirm('Delete this preset?')) return;
+    if (!await customConfirm('Delete this preset?')) return;
     
     try {
         const response = await fetch(`${API_BASE_URL}/presets/${id}`, {

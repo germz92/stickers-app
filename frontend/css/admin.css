@@ -252,6 +252,12 @@ header h1 {
     border-color: rgba(0, 229, 255, 0.5);
 }
 
+.toggle-tabs-btn {
+    margin-left: auto;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* Search and Sort Controls */
 .search-sort-controls {
     display: flex;
@@ -866,6 +872,7 @@ header h1 {
 .btn-secondary,
 .btn-danger,
 .btn-success,
+.btn-warning,
 .btn-generate {
     padding: 8px 16px;
     border: 1px solid transparent;
@@ -926,6 +933,18 @@ header h1 {
     transform: translateY(-2px);
 }
 
+.btn-warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.5);
+}
+
+.btn-warning:hover {
+    background: rgba(255, 152, 0, 0.25);
+    box-shadow: 0 4px 20px rgba(255, 152, 0, 0.2);
+    transform: translateY(-2px);
+}
+
 .btn-generate {
     width: 100%;
     background: rgba(0, 229, 255, 0.15);
@@ -944,7 +963,8 @@ header h1 {
 
 .btn-generate:disabled,
 .btn-primary:disabled,
-.btn-secondary:disabled {
+.btn-secondary:disabled,
+.btn-warning:disabled {
     background: rgba(255, 255, 255, 0.03);
     border-color: rgba(255, 255, 255, 0.1);
     color: #555;
@@ -1278,6 +1298,69 @@ header h1 {
     display: block;
 }
 
+/* Custom Alert & Confirm Modals */
+.custom-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+.custom-modal-content {
+    background: rgba(18, 18, 18, 0.98);
+    border: 1px solid rgba(0, 229, 255, 0.3);
+    border-radius: 8px;
+    padding: 40px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 8px 40px rgba(0, 229, 255, 0.2);
+    animation: slideUp 0.3s ease;
+}
+
+.custom-modal-icon {
+    font-size: 3em;
+    margin-bottom: 20px;
+}
+
+.custom-modal-message {
+    color: #e0e0e0;
+    font-size: 1.1em;
+    line-height: 1.6;
+    margin-bottom: 30px;
+}
+
+.custom-modal-btn {
+    min-width: 120px;
+    padding: 12px 24px;
+    font-size: 1em;
+}
+
+.custom-modal-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
 /* Sticker Lightbox */
 .sticker-lightbox {
     position: fixed;
@@ -1595,44 +1678,40 @@ footer {
 .presets-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    margin-bottom: 10px;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .preset-item {
-    padding: 20px;
+    padding: 12px 15px;
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
-    margin-bottom: 15px;
+    margin-bottom: 8px;
     position: relative;
     display: flex;
     flex-direction: column;
     gap: 0;
+    box-sizing: border-box;
 }
 
 .preset-item label {
-    display: block;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.85em;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
-    text-transform: uppercase;
+    display: none; /* Hide the "TEXT VALUE" label to save space */
 }
 
 .preset-item input,
 .preset-item textarea {
-    width: 100%;
-    padding: 12px 16px;
+    width: calc(100% - 45px); /* Make room for delete button */
+    padding: 10px 12px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
     color: #e0e0e0;
-    font-size: 1em;
+    font-size: 0.95em;
     font-family: inherit;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     resize: vertical;
+    box-sizing: border-box;
 }
 
 .preset-item input:focus,
@@ -1662,8 +1741,10 @@ footer {
 
 .preset-item .btn-danger {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 8px;
+    right: 8px;
+    padding: 6px 10px;
+    font-size: 0.85em;
 }
 
 .status-message {
@@ -1837,6 +1918,12 @@ footer {
         font-size: 0.85em;
         white-space: nowrap;
     }
+    
+    .toggle-tabs-btn {
+        flex-shrink: 0;
+        padding: 8px 12px;
+        font-size: 0.8em;
+    }
 
     /* Search and sort */
     .search-sort-controls {
@@ -1908,7 +1995,46 @@ footer {
     
     /* Preset items */
     .preset-item {
+        padding: 10px 12px;
+    }
+    
+    .preset-item input,
+    .preset-item textarea {
+        width: calc(100% - 40px); /* Make room for delete button */
+        padding: 8px 10px;
+        font-size: 0.9em;
+        box-sizing: border-box;
+    }
+    
+    .preset-item .btn-danger {
+        padding: 5px 8px;
+        font-size: 0.8em;
+    }
+    
+    /* Capture Settings - 2 columns on tablet/mobile */
+    .field-mode-selector {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .mode-radio {
+        padding: 12px;
+    }
+    
+    .mode-radio span {
+        font-size: 0.85em;
+    }
+    
+    .mode-desc {
+        font-size: 0.75em;
+    }
+    
+    .settings-section {
         padding: 15px;
+    }
+    
+    .settings-section h3 {
+        font-size: 1em;
     }
     
     /* Lightbox - mobile optimized */
@@ -2019,6 +2145,32 @@ footer {
     .lightbox-nav button {
         font-size: 0.85em;
         padding: 10px 12px;
+    }
+    
+    /* Capture Settings - single column on small phones */
+    .field-mode-selector {
+        grid-template-columns: 1fr;
+    }
+    
+    .mode-radio {
+        padding: 10px;
+    }
+    
+    .mode-radio span {
+        font-size: 0.8em;
+    }
+    
+    .mode-desc {
+        font-size: 0.7em;
+    }
+    
+    .settings-section {
+        padding: 12px;
+    }
+    
+    .settings-section h3 {
+        font-size: 0.95em;
+        margin-bottom: 12px;
     }
 }
 

@@ -5,6 +5,26 @@ let photoData = null;
 let stream = null;
 let token = null;
 
+// Custom Alert Function
+function customAlert(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customAlert');
+        const messageEl = document.getElementById('customAlertMessage');
+        const okBtn = document.getElementById('customAlertOk');
+        
+        messageEl.textContent = message;
+        modal.style.display = 'flex';
+        
+        const closeHandler = () => {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', closeHandler);
+            resolve();
+        };
+        
+        okBtn.addEventListener('click', closeHandler);
+    });
+}
+
 // Check for existing token on page load
 document.addEventListener('DOMContentLoaded', () => {
     token = localStorage.getItem('captureToken');
@@ -102,7 +122,7 @@ async function startCamera() {
                 console.log('Camera permission status:', permissionStatus.state);
                 
                 if (permissionStatus.state === 'denied') {
-                    alert('Camera access denied. Please enable camera permissions in your browser settings.');
+                    await customAlert('Camera access denied. Please enable camera permissions in your browser settings.');
                     return;
                 }
             } catch (e) {
@@ -128,11 +148,11 @@ async function startCamera() {
         console.error('Camera error:', error);
         
         if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-            alert('Camera access denied. Please enable camera permissions and refresh the page.');
+            await customAlert('Camera access denied. Please enable camera permissions and refresh the page.');
         } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-            alert('No camera found. Please connect a camera and try again.');
+            await customAlert('No camera found. Please connect a camera and try again.');
         } else {
-            alert('Unable to access camera. Please check permissions and try again.');
+            await customAlert('Unable to access camera. Please check permissions and try again.');
         }
     }
 }
@@ -470,7 +490,7 @@ async function submitCapture() {
     const customText = document.getElementById('customTextInput').value.trim();
     
     if (!name || !prompt || !photoData) {
-        alert('Please fill in all required fields');
+        await customAlert('Please fill in all required fields');
         return;
     }
 
@@ -503,7 +523,7 @@ async function submitCapture() {
         }
     } catch (error) {
         console.error('Submission error:', error);
-        alert(`Error: ${error.message}`);
+        await customAlert(`Error: ${error.message}`);
         submitBtn.disabled = false;
         submitBtn.textContent = 'Submit';
     }
