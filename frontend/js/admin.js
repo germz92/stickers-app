@@ -6,6 +6,10 @@ let allSubmissions = [];
 let presets = [];
 let pollInterval = null;
 
+// Event management
+let allEvents = [];
+let currentEvent = null;
+
 // Custom Alert & Confirm Functions
 function customAlert(message) {
     return new Promise((resolve) => {
@@ -100,10 +104,8 @@ async function login() {
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
             
-            // Initialize
-            loadSubmissions();
-            loadPresets();
-            startPolling();
+            // Initialize - show event selection first
+            loadEvents();
         } else {
             errorDiv.textContent = data.error || 'Invalid password';
             errorDiv.classList.add('show');
@@ -125,7 +127,7 @@ function logout() {
 // Verify token
 async function verifyToken() {
     try {
-        const response = await fetch(`${API_BASE_URL}/submissions?status=pending`, {
+        const response = await fetch(`${API_BASE_URL}/events`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -135,10 +137,8 @@ async function verifyToken() {
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
             
-            // Initialize
-            loadSubmissions();
-            loadPresets();
-            startPolling();
+            // Initialize - show event selection first
+            loadEvents();
         } else {
             localStorage.removeItem('adminToken');
             token = null;
@@ -175,9 +175,14 @@ function switchTab(tabName) {
 
 // Load Submissions
 async function loadSubmissions(silent = false, append = false) {
+    if (!currentEvent) {
+        console.warn('No event selected');
+        return;
+    }
+    
     try {
         const skip = append ? allSubmissions.length : 0;
-        const url = `${API_BASE_URL}/submissions?limit=${paginationState.limit}&skip=${skip}`;
+        const url = `${API_BASE_URL}/submissions?eventId=${currentEvent._id}&limit=${paginationState.limit}&skip=${skip}`;
         
         const response = await fetch(url, {
             headers: {
@@ -294,6 +299,311 @@ function stopPolling() {
         pollInterval = null;
     }
     isPolling = false;
+}
+
+// ===== EVENT MANAGEMENT =====
+
+// Load all events
+async function loadEvents() {
+    try {
+        const showArchived = document.getElementById('showArchivedEvents')?.checked || false;
+        const url = `${API_BASE_URL}/events?includeArchived=${showArchived}`;
+        
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) throw new Error('Failed to load events');
+
+        allEvents = await response.json();
+        displayEvents();
+    } catch (error) {
+        console.error('Error loading events:', error);
+        document.getElementById('eventsList').innerHTML = 
+            '<p class="loading">Failed to load events. Please try again.</p>';
+    }
+}
+
+// Display events as cards
+function displayEvents() {
+    const container = document.getElementById('eventsList');
+    
+    if (allEvents.length === 0) {
+        container.innerHTML = `
+            <div class="no-events">
+                <p class="loading">No events found. Create your first event to get started!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = allEvents.map(event => {
+        const eventDate = new Date(event.eventDate);
+        const formattedDate = eventDate.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        const isArchived = event.isArchived;
+        
+        return `
+            <div class="event-card ${isArchived ? 'archived' : ''}" onclick="selectEvent('${event._id}')">
+                <div class="event-card-header">
+                    <h3>${escapeHtml(event.name)}</h3>
+                    ${isArchived ? '<span class="event-badge archived">Archived</span>' : '<span class="event-badge active">Active</span>'}
+                </div>
+                <div class="event-card-date">${formattedDate}</div>
+                ${event.description ? `<p class="event-card-description">${escapeHtml(event.description)}</p>` : ''}
+                <div class="event-card-stats">
+                    <div class="event-stat">
+                        <span class="event-stat-value ${event.pendingCount > 0 ? 'pending' : ''}">${event.pendingCount || 0}</span>
+                        <span class="event-stat-label">Pending</span>
+                    </div>
+                    <div class="event-stat">
+                        <span class="event-stat-value">${event.totalCount || 0}</span>
+                        <span class="event-stat-label">Total</span>
+                    </div>
+                </div>
+                <div class="event-card-actions" onclick="event.stopPropagation()">
+                    <button onclick="openEditEventModal('${event._id}')" class="btn-secondary btn-sm">Edit</button>
+                    ${isArchived 
+                        ? `<button onclick="unarchiveEvent('${event._id}')" class="btn-success btn-sm">Restore</button>`
+                        : `<button onclick="archiveEvent('${event._id}')" class="btn-warning btn-sm">Archive</button>`
+                    }
+                    <button onclick="deleteEvent('${event._id}')" class="btn-danger btn-sm">Delete</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Select event and show queue
+async function selectEvent(eventId) {
+    const event = allEvents.find(e => e._id === eventId);
+    if (!event) return;
+    
+    currentEvent = event;
+    
+    // Update header with event name
+    document.getElementById('currentEventName').textContent = event.name;
+    
+    // Switch screens
+    document.getElementById('eventSelectionScreen').style.display = 'none';
+    document.getElementById('eventQueueScreen').style.display = 'block';
+    
+    // Load event data
+    loadSubmissions();
+    loadPresets();
+    startPolling();
+}
+
+// Go back to event selection
+function backToEvents() {
+    stopPolling();
+    currentEvent = null;
+    allSubmissions = [];
+    
+    document.getElementById('eventQueueScreen').style.display = 'none';
+    document.getElementById('eventSelectionScreen').style.display = 'block';
+    
+    loadEvents();
+}
+
+// Open create event modal
+function openCreateEventModal() {
+    document.getElementById('newEventName').value = '';
+    document.getElementById('newEventDescription').value = '';
+    document.getElementById('newEventDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('createEventError').style.display = 'none';
+    document.getElementById('createEventModal').style.display = 'flex';
+}
+
+// Close create event modal
+function closeCreateEventModal() {
+    document.getElementById('createEventModal').style.display = 'none';
+}
+
+// Create new event
+async function createNewEvent() {
+    const name = document.getElementById('newEventName').value.trim();
+    const description = document.getElementById('newEventDescription').value.trim();
+    const eventDate = document.getElementById('newEventDate').value;
+    const errorDiv = document.getElementById('createEventError');
+    
+    if (!name || !eventDate) {
+        errorDiv.textContent = 'Name and date are required';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/events`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ name, description, eventDate })
+        });
+        
+        if (response.ok) {
+            closeCreateEventModal();
+            loadEvents();
+            showStatus('Event created successfully!', 'success');
+        } else {
+            const data = await response.json();
+            errorDiv.textContent = data.error || 'Failed to create event';
+            errorDiv.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Create event error:', error);
+        errorDiv.textContent = 'Connection error. Please try again.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+// Open edit event modal
+function openEditEventModal(eventId) {
+    const event = allEvents.find(e => e._id === eventId);
+    if (!event) return;
+    
+    document.getElementById('editEventId').value = event._id;
+    document.getElementById('editEventName').value = event.name;
+    document.getElementById('editEventDescription').value = event.description || '';
+    document.getElementById('editEventDate').value = new Date(event.eventDate).toISOString().split('T')[0];
+    document.getElementById('editEventError').style.display = 'none';
+    document.getElementById('editEventModal').style.display = 'flex';
+}
+
+// Close edit event modal
+function closeEditEventModal() {
+    document.getElementById('editEventModal').style.display = 'none';
+}
+
+// Save event changes
+async function saveEventChanges() {
+    const eventId = document.getElementById('editEventId').value;
+    const name = document.getElementById('editEventName').value.trim();
+    const description = document.getElementById('editEventDescription').value.trim();
+    const eventDate = document.getElementById('editEventDate').value;
+    const errorDiv = document.getElementById('editEventError');
+    
+    if (!name || !eventDate) {
+        errorDiv.textContent = 'Name and date are required';
+        errorDiv.style.display = 'block';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ name, description, eventDate })
+        });
+        
+        if (response.ok) {
+            closeEditEventModal();
+            loadEvents();
+            
+            // Update current event if it's the one being edited
+            if (currentEvent && currentEvent._id === eventId) {
+                const updatedEvent = await response.json();
+                currentEvent = updatedEvent;
+                document.getElementById('currentEventName').textContent = updatedEvent.name;
+            }
+            
+            showStatus('Event updated successfully!', 'success');
+        } else {
+            const data = await response.json();
+            errorDiv.textContent = data.error || 'Failed to update event';
+            errorDiv.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Update event error:', error);
+        errorDiv.textContent = 'Connection error. Please try again.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+// Archive event
+async function archiveEvent(eventId) {
+    if (!await customConfirm('Archive this event? It will be hidden from the capture page.')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${eventId}/archive`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ isArchived: true })
+        });
+        
+        if (response.ok) {
+            loadEvents();
+            showStatus('Event archived', 'info');
+        } else {
+            showStatus('Failed to archive event', 'error');
+        }
+    } catch (error) {
+        console.error('Archive event error:', error);
+        showStatus('Error archiving event', 'error');
+    }
+}
+
+// Unarchive event
+async function unarchiveEvent(eventId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${eventId}/archive`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ isArchived: false })
+        });
+        
+        if (response.ok) {
+            loadEvents();
+            showStatus('Event restored', 'success');
+        } else {
+            showStatus('Failed to restore event', 'error');
+        }
+    } catch (error) {
+        console.error('Unarchive event error:', error);
+        showStatus('Error restoring event', 'error');
+    }
+}
+
+// Delete event
+async function deleteEvent(eventId) {
+    if (!await customConfirm('Delete this event? This can only be done if there are no submissions.')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            loadEvents();
+            showStatus('Event deleted', 'info');
+        } else {
+            const data = await response.json();
+            await customAlert(data.error || 'Failed to delete event');
+        }
+    } catch (error) {
+        console.error('Delete event error:', error);
+        showStatus('Error deleting event', 'error');
+    }
 }
 
 // Track previous filter to detect changes
@@ -1638,14 +1948,20 @@ let captureSettings = null;
 let promptPresetCount = 0;
 let customTextPresetCount = 0;
 
-// Load Capture Settings
+// Load Capture Settings (per-event)
 async function loadCaptureSettings() {
+    if (!currentEvent) {
+        console.warn('No event selected');
+        return;
+    }
+    
     try {
-        const response = await fetch(`${API_BASE_URL}/capture-settings`);
-        if (response.ok) {
-            captureSettings = await response.json();
-            displayCaptureSettings();
-        }
+        // Get settings from current event
+        captureSettings = currentEvent.captureSettings || {
+            promptMode: 'free',
+            customTextMode: 'free'
+        };
+        displayCaptureSettings();
     } catch (error) {
         console.error('Error loading capture settings:', error);
     }
@@ -1832,9 +2148,16 @@ function addCustomTextSuggestionToList(name = '', value = '', index) {
     list.appendChild(div);
 }
 
-// Save Capture Settings
+// Save Capture Settings (per-event)
 async function saveCaptureSettings() {
     const statusDiv = document.getElementById('settingsStatus');
+    
+    if (!currentEvent) {
+        statusDiv.textContent = '⚠️ No event selected';
+        statusDiv.className = 'status-message error';
+        statusDiv.style.display = 'block';
+        return;
+    }
     
     try {
         const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
@@ -1905,26 +2228,31 @@ async function saveCaptureSettings() {
         
         // Suggestions mode is flexible - no validation needed (can have 0+ suggestions)
         
-        const response = await fetch(`${API_BASE_URL}/capture-settings`, {
+        // Save to current event
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-                promptMode,
-                lockedPromptTitle,
-                lockedPromptValue,
-                promptPresets,
-                customTextMode,
-                lockedCustomTextValue,
-                customTextPresets
+                captureSettings: {
+                    promptMode,
+                    lockedPromptTitle,
+                    lockedPromptValue,
+                    promptPresets,
+                    customTextMode,
+                    lockedCustomTextValue,
+                    customTextPresets
+                }
             })
         });
         
         if (response.ok) {
-            captureSettings = await response.json();
-            statusDiv.textContent = '✓ Settings saved! Capture page updated.';
+            const updatedEvent = await response.json();
+            currentEvent = updatedEvent;
+            captureSettings = updatedEvent.captureSettings;
+            statusDiv.textContent = '✓ Settings saved for this event!';
             statusDiv.className = 'status-message success';
             statusDiv.style.display = 'block';
             

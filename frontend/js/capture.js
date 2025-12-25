@@ -4,6 +4,7 @@ let canvas = null;
 let photoData = null;
 let stream = null;
 let token = null;
+let selectedEvent = null;
 
 // Custom Alert Function
 function customAlert(message) {
@@ -62,8 +63,8 @@ async function login() {
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
             
-            // Start camera automatically
-            startCamera();
+            // Load events for selection
+            loadEvents();
         } else {
             errorDiv.textContent = data.error || 'Invalid password';
             errorDiv.classList.add('show');
@@ -79,7 +80,7 @@ async function login() {
 async function verifyToken() {
     try {
         // Try to make a simple authenticated request
-        const response = await fetch(`${API_BASE_URL}/submissions?status=pending`, {
+        const response = await fetch(`${API_BASE_URL}/events`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -90,8 +91,8 @@ async function verifyToken() {
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
             
-            // Start camera automatically
-            startCamera();
+            // Load events for selection
+            loadEvents();
         } else {
             // Token is invalid
             localStorage.removeItem('captureToken');
@@ -108,6 +109,86 @@ document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
         login();
     }
 });
+
+// ===== EVENT SELECTION =====
+
+// Load events
+async function loadEvents() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/events`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to load events');
+        
+        const events = await response.json();
+        displayEvents(events);
+    } catch (error) {
+        console.error('Error loading events:', error);
+        document.getElementById('eventsList').innerHTML = 
+            '<p class="loading">Failed to load events. Please refresh the page.</p>';
+    }
+}
+
+// Display events as cards
+function displayEvents(events) {
+    const container = document.getElementById('eventsList');
+    
+    // Filter to only show non-archived events
+    const activeEvents = events.filter(e => !e.isArchived);
+    
+    if (activeEvents.length === 0) {
+        container.innerHTML = `
+            <div class="no-events-message">
+                <p>No active events available.</p>
+                <p>Please check back later or contact the event organizer.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = activeEvents.map(event => {
+        const eventDate = new Date(event.eventDate);
+        const formattedDate = eventDate.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+        
+        return `
+            <div class="event-card" onclick="selectEvent('${event._id}')">
+                <h3>${escapeHtml(event.name)}</h3>
+                <div class="event-date">${formattedDate}</div>
+                ${event.description ? `<p class="event-description">${escapeHtml(event.description)}</p>` : ''}
+                <button class="btn-select">Select This Event</button>
+            </div>
+        `;
+    }).join('');
+}
+
+// Select event and proceed to camera
+async function selectEvent(eventId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to load event');
+        
+        selectedEvent = await response.json();
+        
+        // Proceed to camera
+        startCamera();
+    } catch (error) {
+        console.error('Error selecting event:', error);
+        await customAlert('Failed to select event. Please try again.');
+    }
+}
 
 // Start camera
 async function startCamera() {
@@ -193,14 +274,20 @@ function capturePhoto() {
     }, 100);
 }
 
-// Load and apply capture settings
+// Load and apply capture settings (from selected event)
 async function loadCaptureSettings() {
+    if (!selectedEvent) {
+        console.warn('No event selected');
+        return;
+    }
+    
     try {
-        const response = await fetch(`${API_BASE_URL}/capture-settings`);
-        if (response.ok) {
-            const settings = await response.json();
-            applyCaptureSettings(settings);
-        }
+        // Get settings from selected event
+        const settings = selectedEvent.captureSettings || {
+            promptMode: 'free',
+            customTextMode: 'free'
+        };
+        applyCaptureSettings(settings);
     } catch (error) {
         console.error('Error loading capture settings:', error);
         // Default to free mode if error
@@ -429,6 +516,8 @@ function retakePhoto() {
     
     // Clear form
     document.getElementById('nameInput').value = '';
+    document.getElementById('emailInput').value = '';
+    document.getElementById('phoneInput').value = '';
     document.getElementById('promptInput').value = '';
     document.getElementById('customTextInput').value = '';
     
@@ -451,12 +540,15 @@ function stopCamera() {
 // Show specific step
 function showStep(step) {
     // Hide all steps
+    document.getElementById('eventSelectStep').style.display = 'none';
     document.getElementById('cameraStep').style.display = 'none';
     document.getElementById('formStep').style.display = 'none';
     document.getElementById('thankYouStep').style.display = 'none';
     
     // Show requested step
-    if (step === 'camera') {
+    if (step === 'events') {
+        document.getElementById('eventSelectStep').style.display = 'block';
+    } else if (step === 'camera') {
         document.getElementById('cameraStep').style.display = 'block';
     } else if (step === 'form') {
         document.getElementById('formStep').style.display = 'block';
@@ -486,11 +578,18 @@ document.getElementById('promptInput')?.addEventListener('input', validateForm);
 // Submit capture
 async function submitCapture() {
     const name = document.getElementById('nameInput').value.trim();
+    const email = document.getElementById('emailInput').value.trim();
+    const phone = document.getElementById('phoneInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
     const customText = document.getElementById('customTextInput').value.trim();
     
     if (!name || !prompt || !photoData) {
         await customAlert('Please fill in all required fields');
+        return;
+    }
+    
+    if (!selectedEvent) {
+        await customAlert('No event selected. Please go back and select an event.');
         return;
     }
 
@@ -506,7 +605,10 @@ async function submitCapture() {
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
+                eventId: selectedEvent._id,
                 name,
+                email,
+                phone,
                 photo: photoData,
                 prompt,
                 customText
@@ -529,11 +631,13 @@ async function submitCapture() {
     }
 }
 
-// Start over - go back to camera
+// Start over - go back to camera for same event
 function startOver() {
-    // Reset everything
+    // Reset form data but keep the selected event
     photoData = null;
     document.getElementById('nameInput').value = '';
+    document.getElementById('emailInput').value = '';
+    document.getElementById('phoneInput').value = '';
     document.getElementById('promptInput').value = '';
     document.getElementById('customTextInput').value = '';
     
@@ -541,7 +645,7 @@ function startOver() {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submit';
     
-    // Start camera again
+    // Go back to camera for same event
     startCamera();
 }
 

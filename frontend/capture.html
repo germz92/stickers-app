@@ -27,8 +27,28 @@
     </div>
 
     <div id="mainContent" style="display: none;">
+        <!-- Step 0: Event Selection -->
+        <div id="eventSelectStep" class="step-container">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <h1>Select Your Event</h1>
+                </div>
+            </header>
+
+            <main class="container">
+                <div id="eventsList" class="events-grid">
+                    <p class="loading">Loading events...</p>
+                </div>
+            </main>
+
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
+        </div>
+
         <!-- Step 1: Camera View (Full Screen) -->
-        <div id="cameraStep" class="step-container">
+        <div id="cameraStep" class="step-container" style="display: none;">
             <div class="fullscreen-camera">
                 <video id="video" autoplay playsinline></video>
                 <canvas id="canvas" style="display: none;"></canvas>
@@ -91,6 +111,32 @@
                                 placeholder="Enter your name"
                                 maxlength="50"
                                 autofocus
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="emailInput">
+                                <strong>Email</strong>
+                                <span class="optional">(Optional - for digital delivery)</span>
+                            </label>
+                            <input 
+                                type="email" 
+                                id="emailInput" 
+                                placeholder="your@email.com"
+                                maxlength="100"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="phoneInput">
+                                <strong>Phone</strong>
+                                <span class="optional">(Optional - for digital delivery)</span>
+                            </label>
+                            <input 
+                                type="tel" 
+                                id="phoneInput" 
+                                placeholder="(555) 123-4567"
+                                maxlength="20"
                             >
                         </div>
 

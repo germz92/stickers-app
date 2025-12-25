@@ -27,28 +27,72 @@
     </div>
 
     <div id="mainContent" style="display: none;">
-        <header>
-            <div class="container">
-                <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
-                <h1>Stickers Generator - Admin Panel</h1>
-                <div class="header-controls">
-                    <button onclick="logout()" class="btn-danger btn-sm">
-                        Logout
+        <!-- Event Selection Screen -->
+        <div id="eventSelectionScreen">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <h1>Stickers Generator - Admin Panel</h1>
+                    <div class="header-controls">
+                        <button onclick="logout()" class="btn-danger btn-sm">
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <main class="container">
+                <div class="event-management-header">
+                    <h2>Select an Event</h2>
+                    <button onclick="openCreateEventModal()" class="btn-primary">
+                        + Create Event
                     </button>
                 </div>
-            </div>
-        </header>
 
-        <!-- System Status Banner -->
-        <div id="systemStatusBanner" class="system-status-banner" style="display: none;">
-            <div class="container">
-                <span class="status-icon">⚠️</span>
-                <span id="systemStatusMessage" class="status-message-text"></span>
-                <button onclick="dismissStatusBanner()" class="btn-dismiss">×</button>
-            </div>
+                <div class="event-filters">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="showArchivedEvents" onchange="loadEvents()">
+                        Show archived events
+                    </label>
+                </div>
+
+                <div id="eventsList" class="events-grid">
+                    <p class="loading">Loading events...</p>
+                </div>
+            </main>
+
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
         </div>
 
-        <main class="container">
+        <!-- Event Queue Screen (shown after selecting an event) -->
+        <div id="eventQueueScreen" style="display: none;">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <div class="header-title">
+                        <button onclick="backToEvents()" class="btn-back">← Events</button>
+                        <h1 id="currentEventName">Event Name</h1>
+                    </div>
+                    <div class="header-controls">
+                        <button onclick="logout()" class="btn-danger btn-sm">
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- System Status Banner -->
+            <div id="systemStatusBanner" class="system-status-banner" style="display: none;">
+                <div class="container">
+                    <span class="status-icon">⚠️</span>
+                    <span id="systemStatusMessage" class="status-message-text"></span>
+                    <button onclick="dismissStatusBanner()" class="btn-dismiss">×</button>
+                </div>
+            </div>
+
+            <main class="container">
             <!-- Tabs -->
             <div class="tabs">
                 <button class="tab-btn active" onclick="switchTab('queue')">
@@ -408,11 +452,61 @@
                     <div id="settingsStatus" class="status-message"></div>
                 </div>
             </div>
-        </main>
+            </main>
 
-        <footer>
-            <p>Powered by Lumetry Media</p>
-        </footer>
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Create Event Modal -->
+    <div id="createEventModal" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content modal-form">
+            <h2>Create New Event</h2>
+            <div class="form-group">
+                <label>Event Name <span class="required">*</span></label>
+                <input type="text" id="newEventName" placeholder="e.g., Tech Conference 2024">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="newEventDescription" rows="3" placeholder="Optional event description"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Event Date <span class="required">*</span></label>
+                <input type="date" id="newEventDate">
+            </div>
+            <div id="createEventError" class="error-message"></div>
+            <div class="modal-buttons">
+                <button onclick="createNewEvent()" class="btn-primary">Create Event</button>
+                <button onclick="closeCreateEventModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Event Modal -->
+    <div id="editEventModal" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content modal-form">
+            <h2>Edit Event</h2>
+            <input type="hidden" id="editEventId">
+            <div class="form-group">
+                <label>Event Name <span class="required">*</span></label>
+                <input type="text" id="editEventName" placeholder="e.g., Tech Conference 2024">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="editEventDescription" rows="3" placeholder="Optional event description"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Event Date <span class="required">*</span></label>
+                <input type="date" id="editEventDate">
+            </div>
+            <div id="editEventError" class="error-message"></div>
+            <div class="modal-buttons">
+                <button onclick="saveEventChanges()" class="btn-primary">Save Changes</button>
+                <button onclick="closeEditEventModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
     </div>
 
     <!-- Sticker Lightbox -->

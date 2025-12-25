@@ -22,9 +22,50 @@ mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log('✅ Connected to MongoDB'))
 .catch(err => console.error('❌ MongoDB connection error:', err));
 
+// Event Schema
+const eventSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: { type: String, default: '' },
+  eventDate: { type: Date, required: true },
+  isArchived: { type: Boolean, default: false },
+  
+  // Per-event Capture Settings (embedded)
+  captureSettings: {
+    promptMode: { 
+      type: String, 
+      enum: ['free', 'locked', 'presets', 'suggestions'], 
+      default: 'free' 
+    },
+    lockedPromptTitle: { type: String, default: '' },
+    lockedPromptValue: { type: String, default: '' },
+    promptPresets: [{
+      name: String,
+      value: String
+    }],
+    customTextMode: { 
+      type: String, 
+      enum: ['free', 'locked', 'presets', 'suggestions'], 
+      default: 'free' 
+    },
+    lockedCustomTextValue: { type: String, default: '' },
+    customTextPresets: [{
+      name: String,
+      value: String
+    }]
+  },
+  
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const Event = mongoose.model('Event', eventSchema);
+
 // Submission Schema
 const submissionSchema = new mongoose.Schema({
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
   name: { type: String, required: true },
+  email: { type: String, default: '' },
+  phone: { type: String, default: '' },
   photo: { type: String, required: true }, // S3 URL
   prompt: { type: String, required: true },
   customText: { type: String, default: '' },
@@ -62,37 +103,7 @@ const presetSchema = new mongoose.Schema({
 
 const Preset = mongoose.model('Preset', presetSchema);
 
-// Capture Settings Schema
-const captureSettingsSchema = new mongoose.Schema({
-  // Prompt Configuration
-  promptMode: {
-    type: String,
-    enum: ['free', 'locked', 'presets', 'suggestions'],
-    default: 'free'
-  },
-  lockedPromptTitle: { type: String, default: '' },
-  lockedPromptValue: { type: String, default: '' },
-  promptPresets: [{
-    name: String,
-    value: String
-  }],
-  
-  // Custom Text Configuration
-  customTextMode: {
-    type: String,
-    enum: ['free', 'locked', 'presets', 'suggestions'],
-    default: 'free'
-  },
-  lockedCustomTextValue: { type: String, default: '' },
-  customTextPresets: [{
-    name: String,
-    value: String
-  }],
-  
-  updatedAt: { type: Date, default: Date.now }
-});
-
-const CaptureSettings = mongoose.model('CaptureSettings', captureSettingsSchema);
+// Note: CaptureSettings is now embedded in Event schema
 
 // Authentication middleware
 const authenticateCapture = (req, res, next) => {
@@ -220,10 +231,19 @@ app.post('/api/auth/login/admin', async (req, res) => {
 // Create new submission (capture page)
 app.post('/api/submissions', authenticateCapture, async (req, res) => {
   try {
-    const { name, photo, prompt, customText } = req.body;
+    const { eventId, name, email, phone, photo, prompt, customText } = req.body;
     
-    if (!name || !photo || !prompt) {
-      return res.status(400).json({ error: 'Name, photo, and prompt are required' });
+    if (!eventId || !name || !photo || !prompt) {
+      return res.status(400).json({ error: 'Event, name, photo, and prompt are required' });
+    }
+    
+    // Verify event exists and is not archived
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    if (event.isArchived) {
+      return res.status(400).json({ error: 'Cannot submit to archived event' });
     }
 
     // Upload photo to S3
@@ -232,7 +252,10 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     console.log(`Photo uploaded: ${photoUrl}`);
 
     const submission = new Submission({
+      eventId,
       name,
+      email: email || '',
+      phone: phone || '',
       photo: photoUrl, // Store S3 URL instead of base64
       prompt,
       customText: customText || '',
@@ -251,11 +274,19 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
   }
 });
 
-// Get all submissions (admin page)
+// Get all submissions (admin page) - now requires eventId
 app.get('/api/submissions', authenticateAdmin, async (req, res) => {
   try {
-    const { status, limit, skip } = req.query;
-    const query = status ? { status } : {};
+    const { eventId, status, limit, skip } = req.query;
+    
+    // Build query
+    const query = {};
+    if (eventId) {
+      query.eventId = eventId;
+    }
+    if (status) {
+      query.status = status;
+    }
     
     // Pagination parameters
     const limitNum = parseInt(limit) || 50; // Default 50 per page
@@ -265,6 +296,7 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
     const total = await Submission.countDocuments(query);
     
     const submissions = await Submission.find(query)
+      .populate('eventId', 'name')
       .sort({ createdAt: -1 })
       .limit(limitNum)
       .skip(skipNum);
@@ -907,62 +939,203 @@ app.delete('/api/presets/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// ===== CAPTURE SETTINGS ROUTES =====
+// ===== EVENT ROUTES =====
 
-// Get capture settings (public - capture page needs this)
-app.get('/api/capture-settings', async (req, res) => {
+// Get all events (capture page gets active only, admin gets all)
+app.get('/api/events', async (req, res) => {
   try {
-    let settings = await CaptureSettings.findOne();
+    const { includeArchived } = req.query;
     
-    if (!settings) {
-      // Create default settings
-      settings = await CaptureSettings.create({
-        mode: 'free',
-        lockedPrompt: '',
-        lockedCustomText: '',
-        presetOptions: []
-      });
+    // Check if admin token provided
+    let isAdmin = false;
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        isAdmin = decoded.role === 'admin';
+      } catch (e) {
+        // Not admin, continue as public
+      }
     }
     
-    res.json(settings);
+    let query = {};
+    
+    if (!isAdmin || includeArchived !== 'true') {
+      // For capture page or when not requesting archived: only show non-archived events
+      query.isArchived = false;
+    }
+    
+    const events = await Event.find(query).sort({ eventDate: -1 });
+    
+    // For each event, get submission counts
+    const eventsWithCounts = await Promise.all(events.map(async (event) => {
+      const pendingCount = await Submission.countDocuments({ eventId: event._id, status: 'pending' });
+      const totalCount = await Submission.countDocuments({ eventId: event._id });
+      return {
+        ...event.toObject(),
+        pendingCount,
+        totalCount
+      };
+    }));
+    
+    res.json(eventsWithCounts);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Update capture settings (admin only)
-app.put('/api/capture-settings', authenticateAdmin, async (req, res) => {
+// Get single event (public - for capture page settings)
+app.get('/api/events/:id', async (req, res) => {
   try {
-    const { 
-      promptMode, 
-      lockedPromptTitle,
-      lockedPromptValue, 
-      promptPresets,
-      customTextMode,
-      lockedCustomTextValue,
-      customTextPresets
-    } = req.body;
+    const event = await Event.findById(req.params.id);
     
-    let settings = await CaptureSettings.findOne();
-    
-    if (!settings) {
-      settings = new CaptureSettings();
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
     }
     
-    settings.promptMode = promptMode || 'free';
-    settings.lockedPromptTitle = lockedPromptTitle || '';
-    settings.lockedPromptValue = lockedPromptValue || '';
-    settings.promptPresets = promptPresets || [];
+    res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create event (admin only)
+app.post('/api/events', authenticateAdmin, async (req, res) => {
+  try {
+    const { name, description, eventDate } = req.body;
     
-    settings.customTextMode = customTextMode || 'free';
-    settings.lockedCustomTextValue = lockedCustomTextValue || '';
-    settings.customTextPresets = customTextPresets || [];
+    if (!name || !eventDate) {
+      return res.status(400).json({ error: 'Name and event date are required' });
+    }
     
-    settings.updatedAt = new Date();
+    const event = new Event({
+      name,
+      description: description || '',
+      eventDate: new Date(eventDate),
+      captureSettings: {
+        promptMode: 'free',
+        customTextMode: 'free'
+      }
+    });
     
-    await settings.save();
+    await event.save();
+    res.status(201).json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update event (admin only)
+app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { name, description, eventDate, captureSettings } = req.body;
     
-    res.json(settings);
+    const event = await Event.findById(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    if (name) event.name = name;
+    if (description !== undefined) event.description = description;
+    if (eventDate) event.eventDate = new Date(eventDate);
+    
+    if (captureSettings) {
+      event.captureSettings = {
+        promptMode: captureSettings.promptMode || 'free',
+        lockedPromptTitle: captureSettings.lockedPromptTitle || '',
+        lockedPromptValue: captureSettings.lockedPromptValue || '',
+        promptPresets: captureSettings.promptPresets || [],
+        customTextMode: captureSettings.customTextMode || 'free',
+        lockedCustomTextValue: captureSettings.lockedCustomTextValue || '',
+        customTextPresets: captureSettings.customTextPresets || []
+      };
+    }
+    
+    event.updatedAt = new Date();
+    await event.save();
+    
+    res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Archive/unarchive event (admin only)
+app.patch('/api/events/:id/archive', authenticateAdmin, async (req, res) => {
+  try {
+    const { isArchived } = req.body;
+    
+    const event = await Event.findByIdAndUpdate(
+      req.params.id,
+      { isArchived: isArchived !== false, updatedAt: new Date() },
+      { new: true }
+    );
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete event (admin only - only if no submissions)
+app.delete('/api/events/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const submissionCount = await Submission.countDocuments({ eventId: req.params.id });
+    
+    if (submissionCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete event with ${submissionCount} submission(s). Archive it instead.` 
+      });
+    }
+    
+    const event = await Event.findByIdAndDelete(req.params.id);
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    res.json({ message: 'Event deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== LEGACY CAPTURE SETTINGS ROUTES (for backward compatibility) =====
+// These will redirect to event-based settings in the future
+
+// Get capture settings - now requires eventId
+app.get('/api/capture-settings', async (req, res) => {
+  try {
+    const { eventId } = req.query;
+    
+    if (eventId) {
+      // New way: get from event
+      const event = await Event.findById(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      return res.json(event.captureSettings || {
+        promptMode: 'free',
+        customTextMode: 'free'
+      });
+    }
+    
+    // Legacy: return default settings
+    res.json({
+      promptMode: 'free',
+      lockedPromptTitle: '',
+      lockedPromptValue: '',
+      promptPresets: [],
+      customTextMode: 'free',
+      lockedCustomTextValue: '',
+      customTextPresets: []
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
