@@ -40,7 +40,7 @@ async function sendEmailNotification(submission, event) {
     to: submission.email,
     from: {
       email: process.env.SENDGRID_FROM_EMAIL,
-      name: process.env.SENDGRID_FROM_NAME || 'Stickers Generator'
+      name: process.env.SENDGRID_FROM_NAME || 'Lumetry Stickers'
     },
     subject: `Your Stickers from ${eventName} are Ready!`,
     html: `
