@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Your Stickers</title>
+    <link rel="apple-touch-icon" href="/images/header-image.png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', sans-serif;
+            background: #0a0a0a;
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 20px;
+            background: linear-gradient(145deg, rgba(18, 18, 18, 0.95), rgba(10, 10, 10, 0.95));
+            border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+        }
+
+        .logo {
+            max-width: 120px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+
+        header h1 {
+            color: #ffffff;
+            font-size: 1.8em;
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .attendee-name {
+            color: #00e5ff;
+            font-size: 1.4em;
+            font-weight: 400;
+        }
+
+        .event-info {
+            color: #888;
+            font-size: 0.95em;
+            margin-top: 10px;
+        }
+
+        .gallery-section {
+            padding: 40px 0;
+        }
+
+        .gallery-section h2 {
+            color: #ffffff;
+            font-weight: 300;
+            letter-spacing: 1px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        .stickers-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .sticker-card {
+            background: rgba(18, 18, 18, 0.8);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .sticker-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 229, 255, 0.3);
+            box-shadow: 0 10px 30px rgba(0, 229, 255, 0.1);
+        }
+
+        .sticker-card img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: contain;
+            background: rgba(0, 0, 0, 0.5);
+            cursor: pointer;
+        }
+
+        .sticker-actions {
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .btn-download {
+            width: 100%;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(0, 150, 200, 0.15));
+            border: 1px solid rgba(0, 229, 255, 0.4);
+            border-radius: 8px;
+            color: #00e5ff;
+            font-size: 0.9em;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        .btn-download:hover {
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.25), rgba(0, 150, 200, 0.25));
+            box-shadow: 0 5px 20px rgba(0, 229, 255, 0.2);
+        }
+
+        .download-all-section {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-download-all {
+            display: inline-block;
+            padding: 18px 40px;
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(0, 150, 200, 0.2));
+            border: 2px solid rgba(0, 229, 255, 0.5);
+            border-radius: 8px;
+            color: #00e5ff;
+            font-size: 1.1em;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+
+        .btn-download-all:hover {
+            background: linear-gradient(135deg, rgba(0, 229, 255, 0.3), rgba(0, 150, 200, 0.3));
+            box-shadow: 0 8px 30px rgba(0, 229, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: #555;
+            font-size: 0.85em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(0, 229, 255, 0.1);
+            border-top-color: #00e5ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            text-align: center;
+            padding: 60px 20px;
+            color: #ff5555;
+        }
+
+        .error-message h2 {
+            margin-bottom: 15px;
+        }
+
+        /* Lightbox */
+        .lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .lightbox.active {
+            display: flex;
+        }
+
+        .lightbox img {
+            max-width: 90vw;
+            max-height: 85vh;
+            border-radius: 8px;
+        }
+
+        .lightbox-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: #ffffff;
+            font-size: 2.5em;
+            cursor: pointer;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lightbox-close:hover {
+            color: #00e5ff;
+        }
+
+        @media (max-width: 600px) {
+            .stickers-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+
+            header h1 {
+                font-size: 1.4em;
+            }
+
+            .attendee-name {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+        <h1>Your Stickers Are Ready!</h1>
+        <div id="attendeeInfo">
+            <div class="loading-spinner"></div>
+            <p>Loading your stickers...</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="content">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading your stickers...</p>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Powered by Lumetry Media</p>
+    </footer>
+
+    <!-- Lightbox -->
+    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+        <img id="lightboxImage" src="" alt="Sticker">
+    </div>
+
+    <script src="js/config.js"></script>
+    <script>
+        let submissionData = null;
+
+        // Get submission ID from URL
+        function getSubmissionId() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('id');
+        }
+
+        // Load submission data
+        async function loadSubmission() {
+            const submissionId = getSubmissionId();
+            
+            if (!submissionId) {
+                showError('Invalid Link', 'This link appears to be invalid or incomplete.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/gallery/${submissionId}`);
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        showError('Not Found', 'This submission could not be found.');
+                    } else {
+                        throw new Error('Failed to load');
+                    }
+                    return;
+                }
+
+                submissionData = await response.json();
+                displayGallery();
+            } catch (error) {
+                console.error('Error loading submission:', error);
+                showError('Error', 'Unable to load your stickers. Please try again later.');
+            }
+        }
+
+        // Display the gallery
+        function displayGallery() {
+            // Update header
+            const attendeeInfo = document.getElementById('attendeeInfo');
+            attendeeInfo.innerHTML = `
+                <div class="attendee-name">${escapeHtml(submissionData.name)}</div>
+                ${submissionData.eventName ? `<div class="event-info">${escapeHtml(submissionData.eventName)}</div>` : ''}
+            `;
+
+            // Check if images exist
+            if (!submissionData.generatedImages || submissionData.generatedImages.length === 0) {
+                document.getElementById('content').innerHTML = `
+                    <div class="error-message">
+                        <h2>Images Not Ready Yet</h2>
+                        <p>Your stickers are still being processed. Please check back in a few minutes.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Display stickers
+            const content = document.getElementById('content');
+            content.innerHTML = `
+                <section class="gallery-section">
+                    <h2>Your Personalized Stickers</h2>
+                    <div class="stickers-grid">
+                        ${submissionData.generatedImages.map((img, idx) => `
+                            <div class="sticker-card">
+                                <img src="${img.url}" alt="Sticker ${idx + 1}" onclick="openLightbox('${img.url}')">
+                                <div class="sticker-actions">
+                                    <a href="${img.url}" download="sticker_${idx + 1}.png" class="btn-download">
+                                        Download
+                                    </a>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="download-all-section">
+                        <button onclick="downloadAll()" class="btn-download-all">
+                            Download All Stickers
+                        </button>
+                    </div>
+                </section>
+            `;
+        }
+
+        // Show error message
+        function showError(title, message) {
+            document.getElementById('attendeeInfo').innerHTML = '';
+            document.getElementById('content').innerHTML = `
+                <div class="error-message">
+                    <h2>${title}</h2>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Lightbox functions
+        function openLightbox(imageUrl) {
+            document.getElementById('lightboxImage').src = imageUrl;
+            document.getElementById('lightbox').classList.add('active');
+        }
+
+        function closeLightbox() {
+            document.getElementById('lightbox').classList.remove('active');
+        }
+
+        // Download all stickers
+        async function downloadAll() {
+            if (!submissionData || !submissionData.generatedImages) return;
+
+            for (let i = 0; i < submissionData.generatedImages.length; i++) {
+                const img = submissionData.generatedImages[i];
+                
+                // Create a temporary link to trigger download
+                const link = document.createElement('a');
+                link.href = img.url;
+                link.download = `sticker_${i + 1}.png`;
+                link.target = '_blank';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Small delay between downloads
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        // Keyboard support for lightbox
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeLightbox();
+            }
+        });
+
+        // Initialize
+        loadSubmission();
+    </script>
+</body>
+</html>
+
