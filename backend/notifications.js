@@ -65,8 +65,8 @@ async function sendEmailNotification(submission, event) {
               Hi <strong style="color: #00e5ff;">${submission.name}</strong>,
             </p>
             
-            <p style="color: #b0b0b0; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
-              Great news! Your personalized stickers from <strong style="color: #ffffff;">${eventName}</strong> have been created and are ready for you to view and download.
+            <p style="color: #e0e0e0; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
+              Great news! Your personalized stickers from <strong style="color: #00e5ff;">${eventName}</strong> have been created and are ready for you to view and download.
             </p>
             
             <!-- CTA Button -->
