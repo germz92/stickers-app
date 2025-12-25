@@ -2229,10 +2229,6 @@ footer {
     margin-bottom: 10px;
 }
 
-.event-card-date::before {
-    content: "📅";
-}
-
 .event-card-description {
     color: #888;
     font-size: 0.9em;
