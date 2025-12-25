@@ -9,6 +9,7 @@ const path = require('path');
 const axios = require('axios');
 const sharp = require('sharp');
 const { uploadImageToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
+const { sendCompletionNotifications } = require('./notifications');
 
 const app = express();
 
@@ -878,10 +879,22 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
         processedAt: new Date()
       },
       { new: true }
-    );
+    ).populate('eventId');
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Send notifications (email + SMS) if contact info provided
+    if (submission.email || submission.phone) {
+      console.log('📨 Sending completion notifications...');
+      try {
+        const notificationResults = await sendCompletionNotifications(submission, submission.eventId);
+        console.log('📨 Notification results:', notificationResults);
+      } catch (notifyError) {
+        console.error('📨 Notification error (non-fatal):', notifyError.message);
+        // Don't fail the request if notifications fail
+      }
     }
 
     res.json(submission);
@@ -1135,6 +1148,31 @@ app.get('/api/capture-settings', async (req, res) => {
       customTextMode: 'free',
       lockedCustomTextValue: '',
       customTextPresets: []
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PUBLIC GALLERY ENDPOINT =====
+
+// Get submission for public gallery (no auth required)
+app.get('/api/gallery/:id', async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id)
+      .populate('eventId', 'name');
+    
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Only return necessary public data
+    res.json({
+      name: submission.name,
+      eventName: submission.eventId?.name || null,
+      generatedImages: submission.generatedImages || [],
+      status: submission.status,
+      processedAt: submission.processedAt
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
