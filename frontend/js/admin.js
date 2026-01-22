@@ -1408,6 +1408,7 @@ async function generateStickers() {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
+                    eventId: currentEvent._id,
                     name: 'Admin Upload',
                     photo: currentImage,
                     prompt: prompt,
