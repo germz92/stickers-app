@@ -190,6 +190,7 @@ header {
 header .container {
     text-align: center;
     padding: 25px 20px;
+    position: relative;
 }
 
 .logo {
@@ -197,6 +198,32 @@ header .container {
     height: auto;
     margin-bottom: 15px;
     opacity: 0.9;
+}
+
+/* Logout Button */
+.btn-logout {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 85, 85, 0.2);
+    border: 1px solid rgba(255, 85, 85, 0.3);
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.2em;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
+
+.btn-logout:hover {
+    background: rgba(255, 85, 85, 0.4);
+    border-color: rgba(255, 85, 85, 0.6);
+    transform: scale(1.05);
+}
+
+.btn-logout:active {
+    transform: scale(0.95);
 }
 
 header h1 {

@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (token) {
         // Verify token is still valid
         verifyToken();
+    } else {
+        // No token, show login modal immediately
+        showLoginModal();
     }
 });
 
@@ -122,7 +125,38 @@ function showLoginModal() {
     const passwordField = document.getElementById('loginPassword');
     if (passwordField) {
         passwordField.value = '';
+        passwordField.focus();
     }
+    // Clear any error messages
+    const errorDiv = document.getElementById('loginError');
+    if (errorDiv) {
+        errorDiv.textContent = '';
+        errorDiv.classList.remove('show');
+    }
+}
+
+// Logout function (clears token and shows login)
+function logout() {
+    localStorage.removeItem('captureToken');
+    token = null;
+    selectedEvent = null;
+    
+    // Stop camera if active
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+    
+    // Reset to login screen
+    showLoginModal();
+    
+    // Reset all steps
+    document.getElementById('eventSelectStep').style.display = 'none';
+    document.getElementById('cameraStep').style.display = 'none';
+    document.getElementById('formStep').style.display = 'none';
+    document.getElementById('successStep').style.display = 'none';
+    
+    console.log('Logged out successfully');
 }
 
 // Allow Enter key to submit login
