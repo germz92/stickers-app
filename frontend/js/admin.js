@@ -319,6 +319,22 @@ async function loadEvents() {
 
         allEvents = await response.json();
         displayEvents();
+        
+        // Check if there's a saved event to restore
+        const savedEventId = localStorage.getItem('currentEventId');
+        if (savedEventId) {
+            // Wait a bit for DOM to be ready
+            setTimeout(() => {
+                const event = allEvents.find(e => e._id === savedEventId);
+                if (event) {
+                    console.log('Restoring previous event:', event.name);
+                    selectEvent(savedEventId);
+                } else {
+                    // Event no longer exists, clear saved ID
+                    localStorage.removeItem('currentEventId');
+                }
+            }, 100);
+        }
     } catch (error) {
         console.error('Error loading events:', error);
         document.getElementById('eventsList').innerHTML = 
@@ -387,6 +403,9 @@ async function selectEvent(eventId) {
     
     currentEvent = event;
     
+    // Save to localStorage for persistence
+    localStorage.setItem('currentEventId', eventId);
+    
     // Update header with event name
     document.getElementById('currentEventName').textContent = event.name;
     
@@ -405,6 +424,9 @@ function backToEvents() {
     stopPolling();
     currentEvent = null;
     allSubmissions = [];
+    
+    // Clear saved event from localStorage
+    localStorage.removeItem('currentEventId');
     
     document.getElementById('eventQueueScreen').style.display = 'none';
     document.getElementById('eventSelectionScreen').style.display = 'block';
@@ -2416,7 +2438,10 @@ async function uploadLogoToServer(dataUrl) {
 
 // Replace logo
 function replaceLogo() {
-    document.getElementById('logoFileInput').click();
+    // Clear the previous file input value to allow selecting the same file
+    const fileInput = document.getElementById('logoFileInput');
+    fileInput.value = '';
+    fileInput.click();
 }
 
 // Remove logo
@@ -2443,16 +2468,30 @@ async function removeLogo() {
         
         showStatus('✅ Logo removed successfully', 'success', 'brandingTab');
         
-        // Reset UI
+        // Reset UI immediately
         document.getElementById('logoDropZone').style.display = 'flex';
         document.getElementById('logoPreview').style.display = 'none';
+        document.getElementById('logoPreviewImage').src = '';
         document.getElementById('previewLogoOverlay').style.display = 'none';
-        document.querySelector('.preview-placeholder').style.display = 'block';
+        document.getElementById('previewLogoOverlay').src = '';
+        
+        const placeholder = document.querySelector('.preview-placeholder');
+        if (placeholder) {
+            placeholder.style.display = 'block';
+        }
+        
         document.getElementById('brandingEnabled').checked = false;
+        
+        // Clear the file input
+        const fileInput = document.getElementById('logoFileInput');
+        if (fileInput) {
+            fileInput.value = '';
+        }
         
         currentLogoFile = null;
         currentLogoDataUrl = null;
         
+        // Reload event to get updated branding settings
         await loadBrandingSettings();
         
     } catch (error) {

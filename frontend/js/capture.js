@@ -93,13 +93,35 @@ async function verifyToken() {
             
             // Load events for selection
             loadEvents();
-        } else {
-            // Token is invalid
+        } else if (response.status === 401) {
+            // Token is invalid or expired
+            console.log('Token expired or invalid, requesting re-login');
             localStorage.removeItem('captureToken');
             token = null;
+            showLoginModal();
+        } else {
+            // Other error
+            localStorage.removeItem('captureToken');
+            token = null;
+            showLoginModal();
         }
     } catch (error) {
         console.error('Token verification error:', error);
+        // If verification fails, clear token and show login
+        localStorage.removeItem('captureToken');
+        token = null;
+        showLoginModal();
+    }
+}
+
+// Show login modal
+function showLoginModal() {
+    document.getElementById('loginModal').style.display = 'flex';
+    document.getElementById('mainContent').style.display = 'none';
+    // Clear password field
+    const passwordField = document.getElementById('loginPassword');
+    if (passwordField) {
+        passwordField.value = '';
     }
 }
 
@@ -120,6 +142,15 @@ async function loadEvents() {
                 'Authorization': `Bearer ${token}`
             }
         });
+        
+        if (response.status === 401) {
+            // Token expired
+            console.log('Token expired during event load');
+            localStorage.removeItem('captureToken');
+            token = null;
+            showLoginModal();
+            return;
+        }
         
         if (!response.ok) throw new Error('Failed to load events');
         
