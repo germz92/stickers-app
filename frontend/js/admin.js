@@ -2281,7 +2281,381 @@ switchTab = function(tab) {
     if (tab === 'settings' && !captureSettings) {
         loadCaptureSettings();
     }
+    if (tab === 'branding') {
+        loadBrandingSettings();
+    }
 };
+
+// ===== BRANDING SETTINGS =====
+
+let brandingSettings = null;
+let currentLogoFile = null;
+let currentLogoDataUrl = null;
+
+// Initialize branding tab
+function initBrandingTab() {
+    const dropZone = document.getElementById('logoDropZone');
+    const fileInput = document.getElementById('logoFileInput');
+    const sampleStickerInput = document.getElementById('sampleStickerInput');
+    
+    // Click to upload logo
+    dropZone.addEventListener('click', () => {
+        fileInput.click();
+    });
+    
+    // File input change for logo
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleLogoFile(e.target.files[0]);
+        }
+    });
+    
+    // Drag and drop for logo
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            handleLogoFile(e.dataTransfer.files[0]);
+        }
+    });
+    
+    // Sample sticker upload
+    sampleStickerInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            handleSampleStickerFile(e.target.files[0]);
+        }
+    });
+}
+
+// Handle logo file upload
+function handleLogoFile(file) {
+    // Validate file type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+        showStatus('Please upload a PNG, JPG, or SVG file', 'error', 'brandingTab');
+        return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        showStatus('Logo file must be less than 5MB', 'error', 'brandingTab');
+        return;
+    }
+    
+    currentLogoFile = file;
+    
+    // Read file as data URL
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        currentLogoDataUrl = e.target.result;
+        displayLogoPreview(e.target.result);
+        uploadLogoToServer(e.target.result);
+    };
+    reader.readAsDataURL(file);
+}
+
+// Display logo preview
+function displayLogoPreview(dataUrl) {
+    document.getElementById('logoDropZone').style.display = 'none';
+    document.getElementById('logoPreview').style.display = 'block';
+    document.getElementById('logoPreviewImage').src = dataUrl;
+    
+    // Update preview overlay
+    const previewOverlay = document.getElementById('previewLogoOverlay');
+    previewOverlay.src = dataUrl;
+    previewOverlay.style.display = 'block';
+    
+    // Hide placeholder
+    document.querySelector('.preview-placeholder').style.display = 'none';
+    
+    updateBrandingPreview();
+}
+
+// Upload logo to server
+async function uploadLogoToServer(dataUrl) {
+    const token = localStorage.getItem('adminToken');
+    
+    try {
+        showStatus('Uploading logo...', 'info', 'brandingTab');
+        
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/branding/logo`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ logo: dataUrl })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to upload logo');
+        }
+        
+        const result = await response.json();
+        showStatus('✅ Logo uploaded successfully', 'success', 'brandingTab');
+        
+        // Reload branding settings to get the new logo URL
+        await loadBrandingSettings();
+        
+    } catch (error) {
+        console.error('Logo upload error:', error);
+        showStatus(`❌ Error: ${error.message}`, 'error', 'brandingTab');
+    }
+}
+
+// Replace logo
+function replaceLogo() {
+    document.getElementById('logoFileInput').click();
+}
+
+// Remove logo
+async function removeLogo() {
+    const confirmed = await customConfirm('Are you sure you want to remove the logo?');
+    if (!confirmed) return;
+    
+    const token = localStorage.getItem('adminToken');
+    
+    try {
+        showStatus('Removing logo...', 'info', 'brandingTab');
+        
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/branding/logo`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to remove logo');
+        }
+        
+        showStatus('✅ Logo removed successfully', 'success', 'brandingTab');
+        
+        // Reset UI
+        document.getElementById('logoDropZone').style.display = 'flex';
+        document.getElementById('logoPreview').style.display = 'none';
+        document.getElementById('previewLogoOverlay').style.display = 'none';
+        document.querySelector('.preview-placeholder').style.display = 'block';
+        document.getElementById('brandingEnabled').checked = false;
+        
+        currentLogoFile = null;
+        currentLogoDataUrl = null;
+        
+        await loadBrandingSettings();
+        
+    } catch (error) {
+        console.error('Logo removal error:', error);
+        showStatus(`❌ Error: ${error.message}`, 'error', 'brandingTab');
+    }
+}
+
+// Load branding settings
+async function loadBrandingSettings() {
+    if (!currentEvent) return;
+    
+    try {
+        // Event already has branding settings embedded
+        brandingSettings = currentEvent.brandingSettings || {
+            enabled: false,
+            logoUrl: '',
+            position: { x: 50, y: 10 },
+            size: { width: 20, maintainAspectRatio: true },
+            opacity: 100
+        };
+        
+        // Update UI
+        document.getElementById('brandingEnabled').checked = brandingSettings.enabled || false;
+        document.getElementById('positionX').value = brandingSettings.position?.x || 50;
+        document.getElementById('positionY').value = brandingSettings.position?.y || 10;
+        document.getElementById('logoSize').value = brandingSettings.size?.width || 20;
+        document.getElementById('maintainAspectRatio').checked = brandingSettings.size?.maintainAspectRatio !== false;
+        document.getElementById('logoOpacity').value = brandingSettings.opacity || 100;
+        
+        // Update value displays
+        document.getElementById('posXValue').textContent = brandingSettings.position?.x || 50;
+        document.getElementById('posYValue').textContent = brandingSettings.position?.y || 10;
+        document.getElementById('sizeValue').textContent = brandingSettings.size?.width || 20;
+        document.getElementById('opacityValue').textContent = brandingSettings.opacity || 100;
+        
+        // Load logo if exists
+        if (brandingSettings.logoUrl) {
+            currentLogoDataUrl = brandingSettings.logoUrl;
+            displayLogoPreview(brandingSettings.logoUrl);
+        } else {
+            document.getElementById('logoDropZone').style.display = 'flex';
+            document.getElementById('logoPreview').style.display = 'none';
+        }
+        
+    } catch (error) {
+        console.error('Error loading branding settings:', error);
+        showStatus(`❌ Error loading branding settings: ${error.message}`, 'error', 'brandingTab');
+    }
+}
+
+// Update branding preview
+function updateBrandingPreview() {
+    const posX = document.getElementById('positionX').value;
+    const posY = document.getElementById('positionY').value;
+    const size = document.getElementById('logoSize').value;
+    const opacity = document.getElementById('logoOpacity').value;
+    
+    // Update value displays
+    document.getElementById('posXValue').textContent = posX;
+    document.getElementById('posYValue').textContent = posY;
+    document.getElementById('sizeValue').textContent = size;
+    document.getElementById('opacityValue').textContent = opacity;
+    
+    // Update preview overlay position and size
+    const overlay = document.getElementById('previewLogoOverlay');
+    if (overlay && overlay.style.display !== 'none') {
+        overlay.style.left = `${posX}%`;
+        overlay.style.top = `${posY}%`;
+        overlay.style.width = `${size}%`;
+        overlay.style.opacity = opacity / 100;
+        overlay.style.transform = 'translate(-50%, -50%)';
+    }
+}
+
+// Set logo position (quick presets)
+function setLogoPosition(x, y) {
+    document.getElementById('positionX').value = x;
+    document.getElementById('positionY').value = y;
+    updateBrandingPreview();
+}
+
+// Toggle branding enabled
+function toggleBranding() {
+    const enabled = document.getElementById('brandingEnabled').checked;
+    
+    if (enabled && !currentLogoDataUrl) {
+        showStatus('Please upload a logo first', 'error', 'brandingTab');
+        document.getElementById('brandingEnabled').checked = false;
+        return;
+    }
+}
+
+// Save branding settings
+async function saveBrandingSettings() {
+    const token = localStorage.getItem('adminToken');
+    
+    const settings = {
+        enabled: document.getElementById('brandingEnabled').checked,
+        position: {
+            x: parseFloat(document.getElementById('positionX').value),
+            y: parseFloat(document.getElementById('positionY').value)
+        },
+        size: {
+            width: parseFloat(document.getElementById('logoSize').value),
+            maintainAspectRatio: document.getElementById('maintainAspectRatio').checked
+        },
+        opacity: parseFloat(document.getElementById('logoOpacity').value)
+    };
+    
+    try {
+        showStatus('Saving branding settings...', 'info', 'brandingTab');
+        
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/branding`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to save branding settings');
+        }
+        
+        const result = await response.json();
+        showStatus('✅ Branding settings saved successfully', 'success', 'brandingTab');
+        
+        // Update current event with new settings
+        currentEvent.brandingSettings = result.brandingSettings;
+        brandingSettings = result.brandingSettings;
+        
+    } catch (error) {
+        console.error('Save branding settings error:', error);
+        showStatus(`❌ Error: ${error.message}`, 'error', 'brandingTab');
+    }
+}
+
+// Upload sample sticker for preview
+function uploadSampleSticker() {
+    document.getElementById('sampleStickerInput').click();
+}
+
+// Handle sample sticker file
+function handleSampleStickerFile(file) {
+    // Validate file type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+        showStatus('Please upload a PNG, JPG, or WEBP image', 'error', 'brandingTab');
+        return;
+    }
+    
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        showStatus('Sample sticker must be less than 10MB', 'error', 'brandingTab');
+        return;
+    }
+    
+    // Read file as data URL
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        displaySampleSticker(e.target.result);
+    };
+    reader.readAsDataURL(file);
+}
+
+// Display sample sticker in preview
+function displaySampleSticker(dataUrl) {
+    const sampleImg = document.getElementById('previewSampleSticker');
+    const placeholder = document.querySelector('.preview-placeholder');
+    const clearBtn = document.getElementById('clearSampleBtn');
+    
+    sampleImg.src = dataUrl;
+    sampleImg.style.display = 'block';
+    placeholder.style.display = 'none';
+    clearBtn.style.display = 'inline-block';
+    
+    // Ensure logo overlay stays on top if it exists
+    updateBrandingPreview();
+}
+
+// Clear sample sticker
+function clearSampleSticker() {
+    const sampleImg = document.getElementById('previewSampleSticker');
+    const placeholder = document.querySelector('.preview-placeholder');
+    const clearBtn = document.getElementById('clearSampleBtn');
+    
+    sampleImg.style.display = 'none';
+    sampleImg.src = '';
+    clearBtn.style.display = 'none';
+    
+    // Show placeholder if no logo
+    if (!currentLogoDataUrl) {
+        placeholder.style.display = 'block';
+    }
+}
+
+// Initialize branding tab when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    initBrandingTab();
+});
 
 // ===== STICKER LIGHTBOX =====
 

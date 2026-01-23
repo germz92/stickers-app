@@ -105,6 +105,9 @@
                 <button class="tab-btn" onclick="switchTab('presets')">
                     Presets
                 </button>
+                <button class="tab-btn" onclick="switchTab('branding')">
+                    Branding
+                </button>
                 <button class="tab-btn" onclick="switchTab('settings')">
                     Capture Settings
                 </button>
@@ -322,6 +325,131 @@
                         <h3>Saved Presets</h3>
                         <div id="presetsList">
                             <p class="loading">Loading presets...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Branding Tab -->
+            <div id="brandingTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Event Branding</h2>
+                    <p class="hint">Add a logo overlay to all generated stickers for this event</p>
+                </div>
+
+                <div class="branding-container">
+                    <!-- Left: Logo Upload & Controls -->
+                    <div class="branding-upload-section">
+                        <h3>Logo Settings</h3>
+                        
+                        <!-- Enable/Disable Toggle -->
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="brandingEnabled" onchange="toggleBranding()">
+                                <span>Enable Logo Overlay</span>
+                            </label>
+                        </div>
+
+                        <!-- Logo Upload Area -->
+                        <div class="logo-upload-area" id="logoUploadArea">
+                            <div id="logoDropZone" class="logo-drop-zone">
+                                <div class="drop-zone-content">
+                                    <div class="upload-icon">📁</div>
+                                    <p><strong>Drag & Drop</strong> your logo here</p>
+                                    <p class="hint">or click to browse</p>
+                                    <p class="hint">PNG with transparency recommended</p>
+                                </div>
+                                <input type="file" id="logoFileInput" accept="image/png,image/svg+xml,image/jpeg" style="display: none;">
+                            </div>
+                            
+                            <!-- Logo Preview -->
+                            <div id="logoPreview" class="logo-preview" style="display: none;">
+                                <img id="logoPreviewImage" src="" alt="Logo Preview">
+                                <div class="logo-preview-actions">
+                                    <button onclick="replaceLogo()" class="btn-secondary btn-sm">Replace</button>
+                                    <button onclick="removeLogo()" class="btn-danger btn-sm">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Position Controls -->
+                        <div class="branding-controls">
+                            <h4>Position</h4>
+                            <div class="form-group">
+                                <label>Horizontal (X): <span id="posXValue">50</span>%</label>
+                                <input type="range" id="positionX" min="0" max="100" value="50" oninput="updateBrandingPreview()">
+                            </div>
+                            <div class="form-group">
+                                <label>Vertical (Y): <span id="posYValue">10</span>%</label>
+                                <input type="range" id="positionY" min="0" max="100" value="10" oninput="updateBrandingPreview()">
+                            </div>
+                        </div>
+
+                        <!-- Size Controls -->
+                        <div class="branding-controls">
+                            <h4>Size</h4>
+                            <div class="form-group">
+                                <label>Width: <span id="sizeValue">20</span>%</label>
+                                <input type="range" id="logoSize" min="5" max="100" value="20" oninput="updateBrandingPreview()">
+                            </div>
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="maintainAspectRatio" checked onchange="updateBrandingPreview()">
+                                    <span>Maintain Aspect Ratio</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Opacity Controls -->
+                        <div class="branding-controls">
+                            <h4>Opacity</h4>
+                            <div class="form-group">
+                                <label>Opacity: <span id="opacityValue">100</span>%</label>
+                                <input type="range" id="logoOpacity" min="0" max="100" value="100" oninput="updateBrandingPreview()">
+                            </div>
+                        </div>
+
+                        <!-- Quick Position Presets -->
+                        <div class="branding-controls">
+                            <h4>Quick Position</h4>
+                            <div class="position-presets">
+                                <button onclick="setLogoPosition(50, 5)" class="btn-secondary btn-sm">Top Center</button>
+                                <button onclick="setLogoPosition(50, 95)" class="btn-secondary btn-sm">Bottom Center</button>
+                                <button onclick="setLogoPosition(5, 5)" class="btn-secondary btn-sm">Top Left</button>
+                                <button onclick="setLogoPosition(95, 5)" class="btn-secondary btn-sm">Top Right</button>
+                                <button onclick="setLogoPosition(5, 95)" class="btn-secondary btn-sm">Bottom Left</button>
+                                <button onclick="setLogoPosition(95, 95)" class="btn-secondary btn-sm">Bottom Right</button>
+                            </div>
+                        </div>
+
+                        <button onclick="saveBrandingSettings()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                            Save Branding Settings
+                        </button>
+                        <div id="brandingStatus" class="status-message"></div>
+                    </div>
+
+                    <!-- Right: Live Preview -->
+                    <div class="branding-preview-section">
+                        <h3>Preview</h3>
+                        <div class="branding-preview-container">
+                            <div id="brandingPreviewCanvas" class="branding-preview-canvas">
+                                <div class="preview-placeholder">
+                                    <p>Upload a logo to see preview</p>
+                                    <p class="hint">Logo will appear on all generated stickers</p>
+                                </div>
+                                <img id="previewSampleSticker" class="preview-sample" src="" alt="Sample Sticker" style="display: none;">
+                                <img id="previewLogoOverlay" class="preview-logo-overlay" src="" alt="Logo Overlay" style="display: none;">
+                            </div>
+                            <div class="preview-controls">
+                                <button onclick="uploadSampleSticker()" class="btn-secondary btn-sm">
+                                    📸 Upload Sample Sticker
+                                </button>
+                                <button onclick="clearSampleSticker()" class="btn-secondary btn-sm" id="clearSampleBtn" style="display: none;">
+                                    Clear Sample
+                                </button>
+                                <input type="file" id="sampleStickerInput" accept="image/*" style="display: none;">
+                            </div>
+                            <p class="hint">Upload a sample sticker to see exactly how your logo will look</p>
                         </div>
                     </div>
                 </div>
