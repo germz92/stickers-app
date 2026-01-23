@@ -55,6 +55,21 @@ const eventSchema = new mongoose.Schema({
     }]
   },
   
+  // Per-event Branding Settings (embedded)
+  brandingSettings: {
+    enabled: { type: Boolean, default: false },
+    logoUrl: { type: String, default: '' }, // S3 URL
+    position: {
+      x: { type: Number, default: 50 }, // Percentage (0-100)
+      y: { type: Number, default: 10 }  // Percentage (0-100)
+    },
+    size: {
+      width: { type: Number, default: 20 }, // Percentage of sticker width
+      maintainAspectRatio: { type: Boolean, default: true }
+    },
+    opacity: { type: Number, default: 100 } // 0-100
+  },
+  
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -842,6 +857,92 @@ app.delete('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Helper function to apply logo overlay to image
+async function applyLogoOverlay(imageBase64, logoBuffer, brandingSettings, metadata) {
+  try {
+    // Convert base64 to buffer
+    const imageBuffer = Buffer.from(imageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    
+    // Get image dimensions
+    const imageWidth = metadata.width;
+    const imageHeight = metadata.height;
+    
+    // Calculate logo dimensions based on percentage
+    const logoWidthPercent = brandingSettings.size?.width || 20;
+    const logoWidth = Math.round((logoWidthPercent / 100) * imageWidth);
+    
+    // Resize logo maintaining aspect ratio
+    const resizedLogo = await sharp(logoBuffer)
+      .resize(logoWidth, null, { 
+        fit: 'inside',
+        withoutEnlargement: false 
+      })
+      .toBuffer();
+    
+    // Get resized logo dimensions
+    const logoMetadata = await sharp(resizedLogo).metadata();
+    
+    // Calculate position based on percentages
+    const posX = brandingSettings.position?.x || 50;
+    const posY = brandingSettings.position?.y || 10;
+    
+    // Convert percentages to pixels (centered on the position point)
+    const left = Math.round((posX / 100) * imageWidth - (logoMetadata.width / 2));
+    const top = Math.round((posY / 100) * imageHeight - (logoMetadata.height / 2));
+    
+    // Ensure logo stays within bounds
+    const finalLeft = Math.max(0, Math.min(left, imageWidth - logoMetadata.width));
+    const finalTop = Math.max(0, Math.min(top, imageHeight - logoMetadata.height));
+    
+    // Apply opacity to logo if needed
+    const opacity = (brandingSettings.opacity || 100) / 100;
+    let logoToComposite = resizedLogo;
+    
+    if (opacity < 1) {
+      // Apply opacity by modifying the alpha channel
+      const { data, info } = await sharp(resizedLogo)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      
+      // Multiply alpha channel by opacity
+      for (let i = 0; i < data.length; i += 4) {
+        data[i + 3] = Math.round(data[i + 3] * opacity);
+      }
+      
+      logoToComposite = await sharp(data, {
+        raw: {
+          width: info.width,
+          height: info.height,
+          channels: 4
+        }
+      })
+        .png()
+        .toBuffer();
+    }
+    
+    // Composite logo onto image
+    const compositedImage = await sharp(imageBuffer)
+      .composite([{
+        input: logoToComposite,
+        top: finalTop,
+        left: finalLeft,
+        blend: 'over'
+      }])
+      .toBuffer();
+    
+    // Convert back to base64
+    const base64Result = `data:image/png;base64,${compositedImage.toString('base64')}`;
+    
+    console.log(`✨ Logo applied at (${finalLeft}, ${finalTop}) with size ${logoMetadata.width}x${logoMetadata.height}`);
+    
+    return base64Result;
+  } catch (error) {
+    console.error('Error applying logo overlay:', error);
+    throw error;
+  }
+}
+
 // Update submission with generated images (local processor)
 app.patch('/api/submissions/:id/images', async (req, res) => {
   try {
@@ -852,13 +953,66 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
       return res.status(401).json({ error: 'Invalid processor secret' });
     }
 
-    // Upload generated images to S3
+    // Get submission with event data to check branding settings
+    const submission = await Submission.findById(req.params.id).populate('eventId');
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    const event = submission.eventId;
+    
+    // Debug: Log branding settings
+    console.log('🔍 Event branding settings:', {
+      hasEvent: !!event,
+      hasBrandingSettings: !!event?.brandingSettings,
+      enabled: event?.brandingSettings?.enabled,
+      hasLogoUrl: !!event?.brandingSettings?.logoUrl,
+      logoUrl: event?.brandingSettings?.logoUrl
+    });
+    
+    const brandingEnabled = event?.brandingSettings?.enabled && event?.brandingSettings?.logoUrl;
+    
+    let logoBuffer = null;
+    if (brandingEnabled) {
+      console.log('🎨 Branding enabled for this event, downloading logo...');
+      try {
+        // Download logo from S3
+        const logoResponse = await axios.get(event.brandingSettings.logoUrl, { responseType: 'arraybuffer' });
+        logoBuffer = Buffer.from(logoResponse.data);
+        console.log('✅ Logo downloaded successfully');
+      } catch (logoError) {
+        console.error('❌ Failed to download logo:', logoError.message);
+        // Continue without logo if download fails
+      }
+    } else {
+      console.log('ℹ️ Branding not enabled or logo URL missing');
+    }
+
+    // Upload generated images to S3 (with logo overlay if enabled)
     console.log(`Uploading ${generatedImages.length} generated images to S3...`);
     const uploadedImages = [];
     
     for (const img of generatedImages) {
       try {
-        const imageUrl = await uploadImageToS3(img.data, 'results');
+        let imageData = img.data;
+        
+        // Apply logo overlay if branding is enabled
+        if (brandingEnabled && logoBuffer) {
+          try {
+            // Get original image metadata
+            const originalBuffer = Buffer.from(img.data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+            const metadata = await sharp(originalBuffer).metadata();
+            
+            console.log(`🎨 Applying logo to ${img.filename}...`);
+            imageData = await applyLogoOverlay(img.data, logoBuffer, event.brandingSettings, metadata);
+            console.log(`✅ Logo applied to ${img.filename}`);
+          } catch (overlayError) {
+            console.error(`❌ Failed to apply logo to ${img.filename}:`, overlayError.message);
+            // Continue with original image if overlay fails
+          }
+        }
+        
+        const imageUrl = await uploadImageToS3(imageData, 'results');
         uploadedImages.push({
           url: imageUrl, // Store S3 URL instead of base64
           filename: img.filename,
@@ -871,19 +1025,14 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
       }
     }
 
-    const submission = await Submission.findByIdAndUpdate(
-      req.params.id,
-      { 
-        generatedImages: uploadedImages,
-        status: 'completed',
-        processedAt: new Date()
-      },
-      { new: true }
-    ).populate('eventId');
+    // Update submission with uploaded images
+    submission.generatedImages = uploadedImages;
+    submission.status = 'completed';
+    submission.processedAt = new Date();
+    await submission.save();
 
-    if (!submission) {
-      return res.status(404).json({ error: 'Submission not found' });
-    }
+    // Populate eventId again for response
+    await submission.populate('eventId');
 
     // Send notifications (email + SMS) if contact info provided
     if (submission.email || submission.phone) {
@@ -1115,6 +1264,135 @@ app.delete('/api/events/:id', authenticateAdmin, async (req, res) => {
     
     res.json({ message: 'Event deleted successfully' });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload logo for event branding (admin only)
+app.post('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) => {
+  try {
+    const { logo } = req.body; // Base64 image
+    
+    if (!logo) {
+      return res.status(400).json({ error: 'Logo image is required' });
+    }
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Delete old logo if exists
+    if (event.brandingSettings?.logoUrl) {
+      try {
+        await deleteImageFromS3(event.brandingSettings.logoUrl);
+      } catch (err) {
+        console.warn('Failed to delete old logo:', err.message);
+      }
+    }
+    
+    // Upload new logo to S3
+    console.log('Uploading logo to S3...');
+    const logoUrl = await uploadImageToS3(logo, 'branding');
+    console.log(`Logo uploaded: ${logoUrl}`);
+    
+    // Initialize brandingSettings if not exists
+    if (!event.brandingSettings) {
+      event.brandingSettings = {};
+    }
+    
+    event.brandingSettings.logoUrl = logoUrl;
+    event.updatedAt = new Date();
+    await event.save();
+    
+    res.json({ 
+      message: 'Logo uploaded successfully',
+      logoUrl: logoUrl
+    });
+  } catch (error) {
+    console.error('Logo upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update branding settings for event (admin only)
+app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
+  try {
+    const { enabled, position, size, opacity } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Initialize brandingSettings if not exists
+    if (!event.brandingSettings) {
+      event.brandingSettings = {};
+    }
+    
+    // Update settings
+    if (enabled !== undefined) event.brandingSettings.enabled = enabled;
+    if (position) {
+      event.brandingSettings.position = {
+        x: position.x !== undefined ? position.x : event.brandingSettings.position?.x || 50,
+        y: position.y !== undefined ? position.y : event.brandingSettings.position?.y || 10
+      };
+    }
+    if (size) {
+      event.brandingSettings.size = {
+        width: size.width !== undefined ? size.width : event.brandingSettings.size?.width || 20,
+        maintainAspectRatio: size.maintainAspectRatio !== undefined ? size.maintainAspectRatio : event.brandingSettings.size?.maintainAspectRatio !== false
+      };
+    }
+    if (opacity !== undefined) event.brandingSettings.opacity = opacity;
+    
+    event.updatedAt = new Date();
+    await event.save();
+    
+    console.log('✅ Branding settings saved:', {
+      eventId: event._id,
+      enabled: event.brandingSettings.enabled,
+      logoUrl: event.brandingSettings.logoUrl,
+      position: event.brandingSettings.position,
+      size: event.brandingSettings.size,
+      opacity: event.brandingSettings.opacity
+    });
+    
+    res.json({ 
+      message: 'Branding settings updated successfully',
+      brandingSettings: event.brandingSettings
+    });
+  } catch (error) {
+    console.error('Branding settings update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete logo from event branding (admin only)
+app.delete('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Delete logo from S3 if exists
+    if (event.brandingSettings?.logoUrl) {
+      try {
+        await deleteImageFromS3(event.brandingSettings.logoUrl);
+      } catch (err) {
+        console.warn('Failed to delete logo from S3:', err.message);
+      }
+      
+      event.brandingSettings.logoUrl = '';
+      event.brandingSettings.enabled = false;
+      event.updatedAt = new Date();
+      await event.save();
+    }
+    
+    res.json({ message: 'Logo deleted successfully' });
+  } catch (error) {
+    console.error('Logo deletion error:', error);
     res.status(500).json({ error: error.message });
   }
 });
