@@ -1608,6 +1608,15 @@ footer {
     margin-bottom: 20px;
 }
 
+#customTextModeSection {
+    transition: opacity 0.3s ease;
+}
+
+#customTextModeSection.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 .settings-section h3 {
     color: #00e5ff;
     font-size: 1.1em;

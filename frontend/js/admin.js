@@ -1,5 +1,7 @@
 // Global variables
 let token = null;
+let tokenExpiryTime = null;
+let tokenCheckInterval = null;
 let currentSubmission = null;
 let currentImage = null;
 let allSubmissions = [];
@@ -71,8 +73,18 @@ let isPolling = false;
 // Check for existing token on page load
 document.addEventListener('DOMContentLoaded', () => {
     token = localStorage.getItem('adminToken');
-    if (token) {
-        verifyToken();
+    tokenExpiryTime = localStorage.getItem('adminTokenExpiry');
+    
+    if (token && tokenExpiryTime) {
+        // Check if token is expired
+        if (Date.now() >= parseInt(tokenExpiryTime)) {
+            console.log('Token expired, logging out');
+            logout();
+        } else {
+            verifyToken();
+            // Start token expiry checker
+            startTokenExpiryChecker();
+        }
     }
 });
 
@@ -101,8 +113,16 @@ async function login() {
         if (response.ok) {
             token = data.token;
             localStorage.setItem('adminToken', token);
+            
+            // Set token expiry time (24 hours from now)
+            tokenExpiryTime = Date.now() + (24 * 60 * 60 * 1000);
+            localStorage.setItem('adminTokenExpiry', tokenExpiryTime.toString());
+            
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
+            
+            // Start token expiry checker
+            startTokenExpiryChecker();
             
             // Initialize - show event selection first
             loadEvents();
@@ -120,7 +140,17 @@ async function login() {
 // Logout
 function logout() {
     localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminTokenExpiry');
+    localStorage.removeItem('currentEventId');
     token = null;
+    tokenExpiryTime = null;
+    
+    // Stop token expiry checker
+    if (tokenCheckInterval) {
+        clearInterval(tokenCheckInterval);
+        tokenCheckInterval = null;
+    }
+    
     location.reload();
 }
 
@@ -2000,6 +2030,12 @@ function displayCaptureSettings() {
         promptModeRadio.checked = true;
     }
     
+    // Set custom text disabled checkbox
+    const customTextDisabledCheckbox = document.getElementById('customTextDisabled');
+    if (customTextDisabledCheckbox) {
+        customTextDisabledCheckbox.checked = captureSettings.customTextDisabled || false;
+    }
+    
     // Set custom text mode
     const customTextModeRadio = document.querySelector(`input[name="customTextMode"][value="${captureSettings.customTextMode || 'free'}"]`);
     if (customTextModeRadio) {
@@ -2057,14 +2093,22 @@ function displayCaptureSettings() {
 function updateSettingsView() {
     const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
     const customTextMode = document.querySelector('input[name="customTextMode"]:checked').value;
+    const customTextDisabled = document.getElementById('customTextDisabled').checked;
     
     document.getElementById('lockedPromptSettings').style.display = promptMode === 'locked' ? 'block' : 'none';
     document.getElementById('promptPresetsSettings').style.display = promptMode === 'presets' ? 'block' : 'none';
     document.getElementById('promptSuggestionsSettings').style.display = promptMode === 'suggestions' ? 'block' : 'none';
     
-    document.getElementById('lockedCustomTextSettings').style.display = customTextMode === 'locked' ? 'block' : 'none';
-    document.getElementById('customTextPresetsSettings').style.display = customTextMode === 'presets' ? 'block' : 'none';
-    document.getElementById('customTextSuggestionsSettings').style.display = customTextMode === 'suggestions' ? 'block' : 'none';
+    // Hide/show custom text mode section based on disabled checkbox
+    const customTextModeSection = document.getElementById('customTextModeSection');
+    if (customTextDisabled) {
+        customTextModeSection.style.display = 'none';
+    } else {
+        customTextModeSection.style.display = 'block';
+        document.getElementById('lockedCustomTextSettings').style.display = customTextMode === 'locked' ? 'block' : 'none';
+        document.getElementById('customTextPresetsSettings').style.display = customTextMode === 'presets' ? 'block' : 'none';
+        document.getElementById('customTextSuggestionsSettings').style.display = customTextMode === 'suggestions' ? 'block' : 'none';
+    }
 }
 
 // Add Prompt Preset
@@ -2185,6 +2229,7 @@ async function saveCaptureSettings() {
     try {
         const promptMode = document.querySelector('input[name="promptMode"]:checked').value;
         const customTextMode = document.querySelector('input[name="customTextMode"]:checked').value;
+        const customTextDisabled = document.getElementById('customTextDisabled').checked;
         
         const lockedPromptTitle = document.getElementById('lockedPromptTitle').value.trim();
         const lockedPromptValue = document.getElementById('lockedPromptValue').value.trim();
@@ -2265,6 +2310,7 @@ async function saveCaptureSettings() {
                     lockedPromptValue,
                     promptPresets,
                     customTextMode,
+                    customTextDisabled,
                     lockedCustomTextValue,
                     customTextPresets
                 }
@@ -2695,6 +2741,31 @@ function clearSampleSticker() {
 document.addEventListener('DOMContentLoaded', () => {
     initBrandingTab();
 });
+
+// Start token expiry checker (checks every minute)
+function startTokenExpiryChecker() {
+    // Clear any existing interval
+    if (tokenCheckInterval) {
+        clearInterval(tokenCheckInterval);
+    }
+    
+    tokenCheckInterval = setInterval(() => {
+        if (!tokenExpiryTime) return;
+        
+        const timeRemaining = parseInt(tokenExpiryTime) - Date.now();
+        
+        // If token expires in less than 1 minute or has expired
+        if (timeRemaining <= 60000) {
+            console.log('Token expired, auto-logging out');
+            clearInterval(tokenCheckInterval);
+            
+            // Show a message before logging out
+            customAlert('Your session has expired. Please login again.').then(() => {
+                logout();
+            });
+        }
+    }, 60000); // Check every minute
+}
 
 // ===== STICKER LIGHTBOX =====
 

@@ -4,6 +4,8 @@ let canvas = null;
 let photoData = null;
 let stream = null;
 let token = null;
+let tokenExpiryTime = null;
+let tokenCheckInterval = null;
 let selectedEvent = null;
 
 // Custom Alert Function
@@ -29,9 +31,19 @@ function customAlert(message) {
 // Check for existing token on page load
 document.addEventListener('DOMContentLoaded', () => {
     token = localStorage.getItem('captureToken');
-    if (token) {
-        // Verify token is still valid
-        verifyToken();
+    tokenExpiryTime = localStorage.getItem('captureTokenExpiry');
+    
+    if (token && tokenExpiryTime) {
+        // Check if token is expired
+        if (Date.now() >= parseInt(tokenExpiryTime)) {
+            console.log('Token expired, logging out');
+            logout();
+        } else {
+            // Verify token is still valid
+            verifyToken();
+            // Start token expiry checker
+            startTokenExpiryChecker();
+        }
     } else {
         // No token, show login modal immediately
         showLoginModal();
@@ -63,8 +75,16 @@ async function login() {
         if (response.ok) {
             token = data.token;
             localStorage.setItem('captureToken', token);
+            
+            // Set token expiry time (24 hours from now)
+            tokenExpiryTime = Date.now() + (24 * 60 * 60 * 1000);
+            localStorage.setItem('captureTokenExpiry', tokenExpiryTime.toString());
+            
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
+            
+            // Start token expiry checker
+            startTokenExpiryChecker();
             
             // Load events for selection
             loadEvents();
@@ -138,8 +158,16 @@ function showLoginModal() {
 // Logout function (clears token and shows login)
 function logout() {
     localStorage.removeItem('captureToken');
+    localStorage.removeItem('captureTokenExpiry');
     token = null;
+    tokenExpiryTime = null;
     selectedEvent = null;
+    
+    // Stop token expiry checker
+    if (tokenCheckInterval) {
+        clearInterval(tokenCheckInterval);
+        tokenCheckInterval = null;
+    }
     
     // Stop camera if active
     if (stream) {
@@ -157,6 +185,31 @@ function logout() {
     document.getElementById('successStep').style.display = 'none';
     
     console.log('Logged out successfully');
+}
+
+// Start token expiry checker (checks every minute)
+function startTokenExpiryChecker() {
+    // Clear any existing interval
+    if (tokenCheckInterval) {
+        clearInterval(tokenCheckInterval);
+    }
+    
+    tokenCheckInterval = setInterval(() => {
+        if (!tokenExpiryTime) return;
+        
+        const timeRemaining = parseInt(tokenExpiryTime) - Date.now();
+        
+        // If token expires in less than 1 minute or has expired
+        if (timeRemaining <= 60000) {
+            console.log('Token expired, auto-logging out');
+            clearInterval(tokenCheckInterval);
+            
+            // Show a message before logging out
+            customAlert('Your session has expired. Please login again.').then(() => {
+                logout();
+            });
+        }
+    }, 60000); // Check every minute
 }
 
 // Allow Enter key to submit login
@@ -361,6 +414,8 @@ async function loadCaptureSettings() {
 
 // Apply capture settings to form
 function applyCaptureSettings(settings) {
+    console.log('Applying capture settings:', settings); // Debug log
+    
     const promptGroup = document.querySelector('#promptInput').closest('.form-group');
     const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
     const promptInput = document.getElementById('promptInput');
@@ -451,7 +506,18 @@ function applyCaptureSettings(settings) {
     }
     
     // Handle Custom Text Settings
-    if (settings.customTextMode === 'locked') {
+    console.log('Custom text disabled:', settings.customTextDisabled); // Debug log
+    console.log('Custom text mode:', settings.customTextMode); // Debug log
+    
+    if (settings.customTextDisabled === true) {
+        // Custom text is completely disabled - hide everything and stop processing
+        console.log('Custom text is DISABLED - hiding all custom text UI'); // Debug log
+        customTextGroup.style.display = 'none';
+        customTextInput.value = '';
+        customTextInput.readOnly = true;
+        // Don't process any further custom text logic
+        
+    } else if (settings.customTextMode === 'locked') {
         // Lock custom text - show value, hide input
         customTextGroup.style.display = 'none';
         customTextInput.value = settings.lockedCustomTextValue || '';
