@@ -48,6 +48,7 @@ const eventSchema = new mongoose.Schema({
       enum: ['free', 'locked', 'presets', 'suggestions'], 
       default: 'free' 
     },
+    customTextDisabled: { type: Boolean, default: false }, // NEW: Disable custom text completely
     lockedCustomTextValue: { type: String, default: '' },
     customTextPresets: [{
       name: String,
@@ -1210,6 +1211,7 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
         lockedPromptValue: captureSettings.lockedPromptValue || '',
         promptPresets: captureSettings.promptPresets || [],
         customTextMode: captureSettings.customTextMode || 'free',
+        customTextDisabled: captureSettings.customTextDisabled || false,
         lockedCustomTextValue: captureSettings.lockedCustomTextValue || '',
         customTextPresets: captureSettings.customTextPresets || []
       };
