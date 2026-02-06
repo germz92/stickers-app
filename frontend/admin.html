@@ -525,52 +525,62 @@
                     <div class="settings-section">
                         <h3>Custom Text Settings</h3>
                         
-                        <div class="field-mode-selector">
-                            <label class="mode-radio">
-                                <input type="radio" name="customTextMode" value="free" checked onchange="updateSettingsView()">
-                                <span>Free Entry</span>
-                                <div class="mode-desc">Users type anything</div>
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="customTextDisabled" onchange="updateSettingsView()">
+                                <span>Disable Custom Text (hide this field completely)</span>
                             </label>
-
-                            <label class="mode-radio">
-                                <input type="radio" name="customTextMode" value="locked" onchange="updateSettingsView()">
-                                <span>Locked</span>
-                                <div class="mode-desc">Fixed text only</div>
-                            </label>
-
-                            <label class="mode-radio">
-                                <input type="radio" name="customTextMode" value="presets" onchange="updateSettingsView()">
-                                <span>Presets</span>
-                                <div class="mode-desc">Button choices only</div>
-                            </label>
-
-                            <label class="mode-radio">
-                                <input type="radio" name="customTextMode" value="suggestions" onchange="updateSettingsView()">
-                                <span>Suggestions</span>
-                                <div class="mode-desc">Buttons + custom entry</div>
-                            </label>
+                            <div class="hint">When enabled, users won't be able to enter any custom text</div>
                         </div>
+                        
+                        <div id="customTextModeSection">
+                            <div class="field-mode-selector">
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="free" checked onchange="updateSettingsView()">
+                                    <span>Free Entry</span>
+                                    <div class="mode-desc">Users type anything</div>
+                                </label>
 
-                        <!-- Locked Custom Text -->
-                        <div id="lockedCustomTextSettings" class="field-settings" style="display: none;">
-                            <div class="form-group">
-                                <label>Locked Custom Text Value <span class="required">*</span></label>
-                                <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA 2024">
-                                <div class="hint">Shown to users on capture page</div>
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="locked" onchange="updateSettingsView()">
+                                    <span>Locked</span>
+                                    <div class="mode-desc">Fixed text only</div>
+                                </label>
+
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="presets" onchange="updateSettingsView()">
+                                    <span>Presets</span>
+                                    <div class="mode-desc">Button choices only</div>
+                                </label>
+
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="suggestions" onchange="updateSettingsView()">
+                                    <span>Suggestions</span>
+                                    <div class="mode-desc">Buttons + custom entry</div>
+                                </label>
                             </div>
-                        </div>
 
-                        <!-- Custom Text Presets -->
-                        <div id="customTextPresetsSettings" class="field-settings" style="display: none;">
-                            <div class="presets-list" id="customTextPresetsList"></div>
-                            <button onclick="addCustomTextPreset()" class="btn-secondary btn-sm">Add Text Option</button>
-                        </div>
+                            <!-- Locked Custom Text -->
+                            <div id="lockedCustomTextSettings" class="field-settings" style="display: none;">
+                                <div class="form-group">
+                                    <label>Locked Custom Text Value <span class="required">*</span></label>
+                                    <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA 2024">
+                                    <div class="hint">Shown to users on capture page</div>
+                                </div>
+                            </div>
 
-                        <!-- Custom Text Suggestions -->
-                        <div id="customTextSuggestionsSettings" class="field-settings" style="display: none;">
-                            <p class="hint">Users can click suggestions or type their own text</p>
-                            <div class="presets-list" id="customTextSuggestionsList"></div>
-                            <button onclick="addCustomTextSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
+                            <!-- Custom Text Presets -->
+                            <div id="customTextPresetsSettings" class="field-settings" style="display: none;">
+                                <div class="presets-list" id="customTextPresetsList"></div>
+                                <button onclick="addCustomTextPreset()" class="btn-secondary btn-sm">Add Text Option</button>
+                            </div>
+
+                            <!-- Custom Text Suggestions -->
+                            <div id="customTextSuggestionsSettings" class="field-settings" style="display: none;">
+                                <p class="hint">Users can click suggestions or type their own text</p>
+                                <div class="presets-list" id="customTextSuggestionsList"></div>
+                                <button onclick="addCustomTextSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
+                            </div>
                         </div>
                     </div>
 
