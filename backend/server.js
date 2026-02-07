@@ -29,6 +29,7 @@ const eventSchema = new mongoose.Schema({
   description: { type: String, default: '' },
   eventDate: { type: Date, required: true },
   isArchived: { type: Boolean, default: false },
+  autoApprove: { type: Boolean, default: false }, // Auto-approve pending submissions
   
   // Per-event Capture Settings (embedded)
   captureSettings: {
@@ -1366,6 +1367,29 @@ app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('Branding settings update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Toggle auto-approve for event (admin only)
+app.put('/api/events/:id/auto-approve', authenticateAdmin, async (req, res) => {
+  try {
+    const { autoApprove } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    event.autoApprove = autoApprove;
+    event.updatedAt = new Date();
+    await event.save();
+    
+    console.log(`✅ Auto-approve ${autoApprove ? 'enabled' : 'disabled'} for event: ${event.name}`);
+    
+    res.json(event);
+  } catch (error) {
+    console.error('Auto-approve toggle error:', error);
     res.status(500).json({ error: error.message });
   }
 });
