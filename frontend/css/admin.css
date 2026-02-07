@@ -210,6 +210,72 @@ header h1 {
     letter-spacing: 1px;
 }
 
+.section-header .header-buttons {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+/* Auto-approve Toggle */
+.auto-approve-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(30, 30, 30, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    user-select: none;
+}
+
+.auto-approve-toggle:hover {
+    background: rgba(40, 40, 40, 0.8);
+    border-color: rgba(0, 229, 255, 0.3);
+}
+
+.auto-approve-toggle input[type="checkbox"] {
+    appearance: none;
+    width: 44px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.auto-approve-toggle input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #888;
+    top: 2px;
+    left: 2px;
+    transition: all 0.3s ease;
+}
+
+.auto-approve-toggle input[type="checkbox"]:checked {
+    background: rgba(76, 175, 80, 0.3);
+    border-color: #4caf50;
+}
+
+.auto-approve-toggle input[type="checkbox"]:checked::before {
+    background: #4caf50;
+    transform: translateX(20px);
+}
+
+.auto-approve-toggle span {
+    color: #e0e0e0;
+    font-size: 0.9em;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
 /* Filter Controls */
 .filter-controls {
     display: flex;
@@ -1785,6 +1851,17 @@ footer {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
     }
 }
 
