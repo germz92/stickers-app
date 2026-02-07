@@ -154,6 +154,148 @@ function logout() {
     location.reload();
 }
 
+// Toggle auto-approve for current event
+async function toggleAutoApprove() {
+    if (!currentEvent) return;
+    
+    const toggle = document.getElementById('autoApproveToggle');
+    const autoApprove = toggle.checked;
+    
+    console.log('🔄 Toggling auto-approve:', autoApprove, 'for event:', currentEvent.name);
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/auto-approve`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ autoApprove })
+        });
+        
+        if (!response.ok) throw new Error('Failed to update auto-approve');
+        
+        const updatedEvent = await response.json();
+        currentEvent.autoApprove = updatedEvent.autoApprove;
+        
+        console.log('✅ Auto-approve updated in DB:', currentEvent.autoApprove);
+        console.log('📊 Current submissions count:', allSubmissions.length);
+        console.log('📊 Pending submissions:', allSubmissions.filter(s => s.status === 'pending' && s.eventId === currentEvent._id).length);
+        
+        // Show confirmation
+        showNotification(`Auto-approve ${autoApprove ? 'enabled' : 'disabled'} for ${currentEvent.name}`, 'success');
+        
+        // If enabled, auto-approve all pending submissions immediately
+        if (autoApprove) {
+            await autoApproveAllPending();
+        }
+    } catch (error) {
+        console.error('Auto-approve toggle error:', error);
+        showNotification('Failed to toggle auto-approve', 'error');
+        // Revert toggle
+        toggle.checked = !autoApprove;
+    }
+}
+
+// Auto-approve all pending submissions for current event
+async function autoApproveAllPending() {
+    if (!currentEvent) {
+        console.error('❌ No current event');
+        return;
+    }
+    
+    console.log('🔍 Looking for pending submissions...');
+    console.log('📊 All submissions count:', allSubmissions.length);
+    console.log('📊 Current event ID:', currentEvent._id);
+    
+    const pendingSubmissions = allSubmissions.filter(s => {
+        const isPending = s.status === 'pending';
+        // Convert both IDs to strings for comparison
+        const submissionEventId = String(s.eventId?._id || s.eventId);
+        const currentEventId = String(currentEvent._id);
+        const isCurrentEvent = submissionEventId === currentEventId;
+        console.log(`  Sub ${s._id.substr(-6)}: status=${s.status}, eventId=${submissionEventId}, currentEventId=${currentEventId}, match=${isPending && isCurrentEvent}`);
+        return isPending && isCurrentEvent;
+    });
+    
+    console.log('📋 Found pending submissions:', pendingSubmissions.length);
+    
+    if (pendingSubmissions.length === 0) {
+        console.log('⚠️ No pending submissions to approve');
+        return;
+    }
+    
+    console.log(`🚀 Auto-approving ${pendingSubmissions.length} pending submissions...`);
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const submission of pendingSubmissions) {
+        try {
+            console.log(`📤 Approving submission ${submission._id}...`);
+            // Call API directly without triggering loadSubmissions
+            const response = await fetch(`${API_BASE_URL}/submissions/${submission._id}/approve`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                console.log(`✅ Auto-approved submission ${submission._id}`);
+                successCount++;
+            } else {
+                console.error(`❌ Failed to auto-approve ${submission._id}: ${response.status}`);
+                const errorText = await response.text();
+                console.error('  Error:', errorText);
+                failCount++;
+            }
+        } catch (error) {
+            console.error(`❌ Failed to auto-approve submission ${submission._id}:`, error);
+            failCount++;
+        }
+    }
+    
+    console.log(`📊 Auto-approve complete: ${successCount} succeeded, ${failCount} failed`);
+    
+    if (successCount > 0) {
+        showNotification(`Auto-approved ${successCount} submissions`, 'success');
+        // Reload submissions to show updated statuses
+        await loadSubmissions(true, false);
+    } else if (failCount > 0) {
+        showNotification('Failed to auto-approve submissions', 'error');
+    }
+}
+
+// Show notification
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        z-index: 10000;
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
 // Verify token
 async function verifyToken() {
     try {
@@ -204,7 +346,7 @@ function switchTab(tabName) {
 }
 
 // Load Submissions
-async function loadSubmissions(silent = false, append = false) {
+async function loadSubmissions(silent = false, append = false, skipAutoApprove = false) {
     if (!currentEvent) {
         console.warn('No event selected');
         return;
@@ -230,6 +372,9 @@ async function loadSubmissions(silent = false, append = false) {
         paginationState.total = pagination.total;
         paginationState.hasMore = pagination.hasMore;
         
+        // Track previous submission IDs for detecting new submissions
+        const previousSubmissionIds = new Set(allSubmissions.map(s => s._id));
+        
         if (append) {
             // Append new submissions
             allSubmissions = [...allSubmissions, ...newSubmissions];
@@ -240,11 +385,55 @@ async function loadSubmissions(silent = false, append = false) {
         
         paginationState.loaded = allSubmissions.length;
         
+        // Auto-approve new pending submissions if auto-approve is enabled
+        if (currentEvent.autoApprove && !append && !skipAutoApprove) {
+            const newPendingSubmissions = allSubmissions.filter(s => {
+                const isPending = s.status === 'pending';
+                // Convert both IDs to strings for comparison
+                const submissionEventId = String(s.eventId?._id || s.eventId);
+                const currentEventId = String(currentEvent._id);
+                const isCurrentEvent = submissionEventId === currentEventId;
+                const isNew = !previousSubmissionIds.has(s._id);
+                return isPending && isCurrentEvent && isNew;
+            });
+            
+            if (newPendingSubmissions.length > 0) {
+                console.log(`Auto-approving ${newPendingSubmissions.length} new pending submissions...`);
+                for (const submission of newPendingSubmissions) {
+                    try {
+                        // Call API directly to avoid infinite loop
+                        const response = await fetch(`${API_BASE_URL}/submissions/${submission._id}/approve`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            console.log(`✅ Auto-approved submission ${submission._id}`);
+                        }
+                    } catch (error) {
+                        console.error(`Failed to auto-approve submission ${submission._id}:`, error);
+                    }
+                }
+                // Reload to show updated statuses, but skip auto-approve to prevent loop
+                await loadSubmissions(true, false, true);
+                return;
+            }
+        }
+        
         // Always update the display (even during silent refresh)
         filterSubmissions(); // This will call updateLoadMoreButton() after filtering
         
         // Update queue count
-        const pendingCount = allSubmissions.filter(s => s.status === 'pending').length;
+        const pendingCount = allSubmissions.filter(s => {
+            const isPending = s.status === 'pending';
+            // Convert both IDs to strings for comparison
+            const submissionEventId = String(s.eventId?._id || s.eventId);
+            const currentEventId = String(currentEvent._id);
+            return isPending && submissionEventId === currentEventId;
+        }).length;
         document.getElementById('queueCount').textContent = pendingCount;
     } catch (error) {
         if (!silent) {
@@ -438,6 +627,12 @@ async function selectEvent(eventId) {
     
     // Update header with event name
     document.getElementById('currentEventName').textContent = event.name;
+    
+    // Update auto-approve toggle state
+    const autoApproveToggle = document.getElementById('autoApproveToggle');
+    if (autoApproveToggle) {
+        autoApproveToggle.checked = event.autoApprove || false;
+    }
     
     // Switch screens
     document.getElementById('eventSelectionScreen').style.display = 'none';
