@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: data: blob:;">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Stickers Admin">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#00e5ff">
+    <title>Stickers Generator - Admin</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/images/header-image.png">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <p>Please enter the admin password</p>
+            <input type="password" id="loginPassword" placeholder="Enter admin password">
+            <button onclick="login()" class="btn-primary">Login</button>
+            <div id="loginError" class="error-message"></div>
+        </div>
+    </div>
+
+    <div id="mainContent" style="display: none;">
+        <!-- Event Selection Screen -->
+        <div id="eventSelectionScreen">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <h1>Stickers Generator - Admin Panel</h1>
+                    <div class="header-controls">
+                        <button onclick="logout()" class="btn-danger btn-sm">
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <main class="container">
+                <div class="event-management-header">
+                    <h2>Select an Event</h2>
+                    <button onclick="openCreateEventModal()" class="btn-primary">
+                        + Create Event
+                    </button>
+                </div>
+
+                <div class="event-filters">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="showArchivedEvents" onchange="loadEvents()">
+                        Show archived events
+                    </label>
+                </div>
+
+                <div id="eventsList" class="events-grid">
+                    <p class="loading">Loading events...</p>
+                </div>
+            </main>
+
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
+        </div>
+
+        <!-- Event Queue Screen (shown after selecting an event) -->
+        <div id="eventQueueScreen" style="display: none;">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <div class="header-title">
+                        <button onclick="backToEvents()" class="btn-back">← Events</button>
+                        <h1 id="currentEventName">Event Name</h1>
+                    </div>
+                    <div class="header-controls">
+                        <button onclick="logout()" class="btn-danger btn-sm">
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- System Status Banner -->
+            <div id="systemStatusBanner" class="system-status-banner" style="display: none;">
+                <div class="container">
+                    <span class="status-icon">⚠️</span>
+                    <span id="systemStatusMessage" class="status-message-text"></span>
+                    <button onclick="dismissStatusBanner()" class="btn-dismiss">×</button>
+                </div>
+            </div>
+
+            <main class="container">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('queue')">
+                    Queue
+                    <span id="queueCount" class="badge">0</span>
+                </button>
+                <button class="tab-btn" onclick="switchTab('generate')">
+                    Generate
+                </button>
+                <button class="tab-btn" onclick="switchTab('presets')">
+                    Presets
+                </button>
+                <button class="tab-btn" onclick="switchTab('branding')">
+                    Branding
+                </button>
+                <button class="tab-btn" onclick="switchTab('settings')">
+                    Capture Settings
+                </button>
+            </div>
+
+            <!-- Queue Tab -->
+            <div id="queueTab" class="tab-content active">
+                <div class="section-header">
+                    <div>
+                        <h2>Submission Queue</h2>
+                        <div id="autoRefreshIndicator" class="auto-refresh-indicator">
+                            <span class="pulse-dot"></span>
+                            Auto-refresh active
+                        </div>
+                    </div>
+                    <div class="header-buttons">
+                        <label class="auto-approve-toggle">
+                            <input type="checkbox" id="autoApproveToggle" onchange="toggleAutoApprove()">
+                            <span>Auto-Approve</span>
+                        </label>
+                        <button onclick="loadSubmissions()" class="btn-secondary">
+                            Refresh Now
+                        </button>
+                    </div>
+                </div>
+
+                <div class="filter-controls">
+                    <label>
+                        <input type="radio" name="statusFilter" value="pending" checked onchange="filterSubmissions()">
+                        <span>Pending</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="statusFilter" value="completed" onchange="filterSubmissions()">
+                        <span>Completed</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="approved" onchange="filterSubmissions()">
+                        <span>Approved</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="processing" onchange="filterSubmissions()">
+                        <span>Processing</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="rejected" onchange="filterSubmissions()">
+                        <span>Rejected</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="failed" onchange="filterSubmissions()">
+                        <span>Failed</span>
+                    </label>
+                    <label class="extra-tab" style="display: none;">
+                        <input type="radio" name="statusFilter" value="all" onchange="filterSubmissions()">
+                        <span>All</span>
+                    </label>
+                    <button id="toggleTabsBtn" onclick="toggleExtraTabs()" class="btn-secondary btn-sm toggle-tabs-btn">
+                        Show All Tabs
+                    </button>
+                </div>
+
+                <div class="search-sort-controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search by name..." oninput="filterSubmissions()">
+                    </div>
+                    <div class="sort-box">
+                        <label for="sortOrder">Sort:</label>
+                        <select id="sortOrder" onchange="filterSubmissions()">
+                            <option value="oldest">Oldest to Newest</option>
+                            <option value="newest">Newest to Oldest</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="submissionsList" class="submissions-grid">
+                    <p class="loading">Loading submissions...</p>
+                </div>
+                
+                <div id="loadMoreContainer" class="load-more-container">
+                    <!-- Load More button will be inserted here by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Generate Tab -->
+            <div id="generateTab" class="tab-content">
+                <div class="generate-container">
+                    <!-- Left: Current Selection -->
+                    <div class="current-selection">
+                        <h2>Current Selection</h2>
+                        <div id="currentSubmission" class="current-submission-preview">
+                            <p class="placeholder">
+                                Select a submission from the queue<br>
+                                <strong>or</strong><br>
+                                Upload / Drag & Drop an image here
+                            </p>
+                        </div>
+
+                        <div class="image-controls">
+                            <button onclick="document.getElementById('customImageUpload').click()" class="btn-secondary" style="width: 100%;">
+                                Upload Image
+                            </button>
+                            <input type="file" id="customImageUpload" accept="image/*" onchange="loadCustomImage(event)" style="display: none;">
+                            
+                            <button id="replaceImageBtn" onclick="replaceImage()" class="btn-secondary" style="width: 100%; display: none;">
+                                Replace
+                            </button>
+                            
+                            <button id="clearImageBtn" onclick="clearImage()" class="btn-danger" style="width: 100%; display: none;">
+                                Clear
+                            </button>
+                        </div>
+
+                        <div class="generation-settings">
+                            <div class="form-group">
+                                <label>
+                                    <strong>Preset</strong>
+                                    <span class="optional">(Optional)</span>
+                                </label>
+                                <select id="presetSelect" onchange="loadPresetValues()">
+                                    <option value="">Custom (type below)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <strong>Prompt Text</strong>
+                                    <span class="required">*</span>
+                                </label>
+                                <textarea id="promptInput" rows="3" placeholder="e.g., magician, astronaut, superhero..."></textarea>
+                                <div class="hint">
+                                    Choose an outfit, costume, profession, or activity
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>
+                                    <strong>Custom Text</strong>
+                                </label>
+                                <input type="text" id="customTextInput" placeholder="e.g., Wow!, Hello...">
+                            </div>
+
+                            <button id="generateBtn" onclick="generateStickers()" class="btn-generate" disabled>
+                                Generate
+                            </button>
+
+                            <div id="statusMessage" class="status-message"></div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Results -->
+                    <div class="generation-controls">
+
+                        <!-- Generation Progress -->
+                        <div id="generationProgress" class="generation-progress" style="display: none;">
+                            <div class="progress-header">
+                                <h3>Generating...</h3>
+                                <p id="progressStatus">Waiting for processor...</p>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="progressBar"></div>
+                            </div>
+                            <div class="progress-steps">
+                                <div class="step" id="step1">Uploading</div>
+                                <div class="step" id="step2">Processing</div>
+                                <div class="step" id="step3">Downloading</div>
+                                <div class="step" id="step4">Complete</div>
+                            </div>
+                        </div>
+
+                        <!-- Generated Images -->
+                        <div id="generatedImages" class="generated-images" style="display: none;">
+                            <h3>Generated Stickers</h3>
+                            <p class="info-text">Print-ready at 600 DPI, 2.5 inches tall</p>
+                            <div class="images-grid">
+                                <div class="image-slot" id="imageSlot1">
+                                    <div class="slot-placeholder">Slot 1</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot2">
+                                    <div class="slot-placeholder">Slot 2</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot3">
+                                    <div class="slot-placeholder">Slot 3</div>
+                                </div>
+                                <div class="image-slot" id="imageSlot4">
+                                    <div class="slot-placeholder">Slot 4</div>
+                                </div>
+                            </div>
+                            <button onclick="downloadAllImages()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                                Download All Images
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Presets Tab -->
+            <div id="presetsTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Manage Presets</h2>
+                </div>
+
+                <div class="presets-container">
+                    <div class="preset-form">
+                        <h3>Add New Preset</h3>
+                        <div class="form-group">
+                            <label>Preset Name</label>
+                            <input type="text" id="newPresetName" placeholder="e.g., Magician, Chef, Astronaut">
+                        </div>
+                        <div class="form-group">
+                            <label>Prompt</label>
+                            <textarea id="newPresetPrompt" rows="2" placeholder="e.g., magician holding a rabbit"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Custom Text</label>
+                            <input type="text" id="newPresetText" placeholder="e.g., Voila!">
+                        </div>
+                        <button onclick="addPreset()" class="btn-primary">Save</button>
+                        <div id="presetStatus" class="status-message"></div>
+                    </div>
+
+                    <div class="preset-list">
+                        <h3>Saved Presets</h3>
+                        <div id="presetsList">
+                            <p class="loading">Loading presets...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Branding Tab -->
+            <div id="brandingTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Event Branding</h2>
+                    <p class="hint">Add a logo overlay to all generated stickers for this event</p>
+                </div>
+
+                <div class="branding-container">
+                    <!-- Left: Logo Upload & Controls -->
+                    <div class="branding-upload-section">
+                        <h3>Logo Settings</h3>
+                        
+                        <!-- Enable/Disable Toggle -->
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="brandingEnabled" onchange="toggleBranding()">
+                                <span>Enable Logo Overlay</span>
+                            </label>
+                        </div>
+
+                        <!-- Logo Upload Area -->
+                        <div class="logo-upload-area" id="logoUploadArea">
+                            <div id="logoDropZone" class="logo-drop-zone">
+                                <div class="drop-zone-content">
+                                    <div class="upload-icon">📁</div>
+                                    <p><strong>Drag & Drop</strong> your logo here</p>
+                                    <p class="hint">or click to browse</p>
+                                    <p class="hint">PNG with transparency recommended</p>
+                                </div>
+                                <input type="file" id="logoFileInput" accept="image/png,image/svg+xml,image/jpeg" style="display: none;">
+                            </div>
+                            
+                            <!-- Logo Preview -->
+                            <div id="logoPreview" class="logo-preview" style="display: none;">
+                                <img id="logoPreviewImage" src="" alt="Logo Preview">
+                                <div class="logo-preview-actions">
+                                    <button onclick="replaceLogo()" class="btn-secondary btn-sm">Replace</button>
+                                    <button onclick="removeLogo()" class="btn-danger btn-sm">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Position Controls -->
+                        <div class="branding-controls">
+                            <h4>Position</h4>
+                            <div class="form-group">
+                                <label>Horizontal (X): <span id="posXValue">50</span>%</label>
+                                <input type="range" id="positionX" min="0" max="100" value="50" oninput="updateBrandingPreview()">
+                            </div>
+                            <div class="form-group">
+                                <label>Vertical (Y): <span id="posYValue">10</span>%</label>
+                                <input type="range" id="positionY" min="0" max="100" value="10" oninput="updateBrandingPreview()">
+                            </div>
+                        </div>
+
+                        <!-- Size Controls -->
+                        <div class="branding-controls">
+                            <h4>Size</h4>
+                            <div class="form-group">
+                                <label>Width: <span id="sizeValue">20</span>%</label>
+                                <input type="range" id="logoSize" min="5" max="100" value="20" oninput="updateBrandingPreview()">
+                            </div>
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="maintainAspectRatio" checked onchange="updateBrandingPreview()">
+                                    <span>Maintain Aspect Ratio</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Opacity Controls -->
+                        <div class="branding-controls">
+                            <h4>Opacity</h4>
+                            <div class="form-group">
+                                <label>Opacity: <span id="opacityValue">100</span>%</label>
+                                <input type="range" id="logoOpacity" min="0" max="100" value="100" oninput="updateBrandingPreview()">
+                            </div>
+                        </div>
+
+                        <!-- Quick Position Presets -->
+                        <div class="branding-controls">
+                            <h4>Quick Position</h4>
+                            <div class="position-presets">
+                                <button onclick="setLogoPosition(50, 5)" class="btn-secondary btn-sm">Top Center</button>
+                                <button onclick="setLogoPosition(50, 95)" class="btn-secondary btn-sm">Bottom Center</button>
+                                <button onclick="setLogoPosition(5, 5)" class="btn-secondary btn-sm">Top Left</button>
+                                <button onclick="setLogoPosition(95, 5)" class="btn-secondary btn-sm">Top Right</button>
+                                <button onclick="setLogoPosition(5, 95)" class="btn-secondary btn-sm">Bottom Left</button>
+                                <button onclick="setLogoPosition(95, 95)" class="btn-secondary btn-sm">Bottom Right</button>
+                            </div>
+                        </div>
+
+                        <button onclick="saveBrandingSettings()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                            Save Branding Settings
+                        </button>
+                        <div id="brandingStatus" class="status-message"></div>
+                    </div>
+
+                    <!-- Right: Live Preview -->
+                    <div class="branding-preview-section">
+                        <h3>Preview</h3>
+                        <div class="branding-preview-container">
+                            <div id="brandingPreviewCanvas" class="branding-preview-canvas">
+                                <div class="preview-placeholder">
+                                    <p>Upload a logo to see preview</p>
+                                    <p class="hint">Logo will appear on all generated stickers</p>
+                                </div>
+                                <img id="previewSampleSticker" class="preview-sample" src="" alt="Sample Sticker" style="display: none;">
+                                <img id="previewLogoOverlay" class="preview-logo-overlay" src="" alt="Logo Overlay" style="display: none;">
+                            </div>
+                            <div class="preview-controls">
+                                <button onclick="uploadSampleSticker()" class="btn-secondary btn-sm">
+                                    📸 Upload Sample Sticker
+                                </button>
+                                <button onclick="clearSampleSticker()" class="btn-secondary btn-sm" id="clearSampleBtn" style="display: none;">
+                                    Clear Sample
+                                </button>
+                                <input type="file" id="sampleStickerInput" accept="image/*" style="display: none;">
+                            </div>
+                            <p class="hint">Upload a sample sticker to see exactly how your logo will look</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Capture Settings Tab -->
+            <div id="settingsTab" class="tab-content">
+                <div class="section-header">
+                    <h2>Capture Page Settings</h2>
+                    <p class="hint">Configure how users enter prompt and custom text independently</p>
+                </div>
+
+                <div class="settings-container">
+                    <!-- Prompt Settings -->
+                    <div class="settings-section">
+                        <h3>Prompt Settings</h3>
+                        
+                        <div class="field-mode-selector">
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="free" checked onchange="updateSettingsView()">
+                                <span>Free Entry</span>
+                                <div class="mode-desc">Users type anything</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="locked" onchange="updateSettingsView()">
+                                <span>Locked</span>
+                                <div class="mode-desc">Fixed prompt only</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="presets" onchange="updateSettingsView()">
+                                <span>Presets</span>
+                                <div class="mode-desc">Button choices only</div>
+                            </label>
+
+                            <label class="mode-radio">
+                                <input type="radio" name="promptMode" value="suggestions" onchange="updateSettingsView()">
+                                <span>Suggestions</span>
+                                <div class="mode-desc">Buttons + custom entry</div>
+                            </label>
+                        </div>
+
+                        <!-- Locked Prompt -->
+                        <div id="lockedPromptSettings" class="field-settings" style="display: none;">
+                            <div class="form-group">
+                                <label>Theme Title <span class="required">*</span></label>
+                                <input type="text" id="lockedPromptTitle" placeholder="e.g., Space Adventure">
+                                <div class="hint">Shown to users on capture page</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Locked Prompt Value <span class="required">*</span></label>
+                                <textarea id="lockedPromptValue" rows="3" placeholder="e.g., astronaut floating in space"></textarea>
+                                <div class="hint">Hidden from users, used for generation</div>
+                            </div>
+                        </div>
+
+                        <!-- Prompt Presets -->
+                        <div id="promptPresetsSettings" class="field-settings" style="display: none;">
+                            <div class="presets-list" id="promptPresetsList"></div>
+                            <button onclick="addPromptPreset()" class="btn-secondary btn-sm">Add Prompt Option</button>
+                        </div>
+
+                        <!-- Prompt Suggestions -->
+                        <div id="promptSuggestionsSettings" class="field-settings" style="display: none;">
+                            <p class="hint">Users can click suggestions or type their own prompt</p>
+                            <div class="presets-list" id="promptSuggestionsList"></div>
+                            <button onclick="addPromptSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Text Settings -->
+                    <div class="settings-section">
+                        <h3>Custom Text Settings</h3>
+                        
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="customTextDisabled" onchange="updateSettingsView()">
+                                <span>Disable Custom Text (hide this field completely)</span>
+                            </label>
+                            <div class="hint">When enabled, users won't be able to enter any custom text</div>
+                        </div>
+                        
+                        <div id="customTextModeSection">
+                            <div class="field-mode-selector">
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="free" checked onchange="updateSettingsView()">
+                                    <span>Free Entry</span>
+                                    <div class="mode-desc">Users type anything</div>
+                                </label>
+
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="locked" onchange="updateSettingsView()">
+                                    <span>Locked</span>
+                                    <div class="mode-desc">Fixed text only</div>
+                                </label>
+
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="presets" onchange="updateSettingsView()">
+                                    <span>Presets</span>
+                                    <div class="mode-desc">Button choices only</div>
+                                </label>
+
+                                <label class="mode-radio">
+                                    <input type="radio" name="customTextMode" value="suggestions" onchange="updateSettingsView()">
+                                    <span>Suggestions</span>
+                                    <div class="mode-desc">Buttons + custom entry</div>
+                                </label>
+                            </div>
+
+                            <!-- Locked Custom Text -->
+                            <div id="lockedCustomTextSettings" class="field-settings" style="display: none;">
+                                <div class="form-group">
+                                    <label>Locked Custom Text Value <span class="required">*</span></label>
+                                    <input type="text" id="lockedCustomTextValue" placeholder="e.g., NASA 2024">
+                                    <div class="hint">Shown to users on capture page</div>
+                                </div>
+                            </div>
+
+                            <!-- Custom Text Presets -->
+                            <div id="customTextPresetsSettings" class="field-settings" style="display: none;">
+                                <div class="presets-list" id="customTextPresetsList"></div>
+                                <button onclick="addCustomTextPreset()" class="btn-secondary btn-sm">Add Text Option</button>
+                            </div>
+
+                            <!-- Custom Text Suggestions -->
+                            <div id="customTextSuggestionsSettings" class="field-settings" style="display: none;">
+                                <p class="hint">Users can click suggestions or type their own text</p>
+                                <div class="presets-list" id="customTextSuggestionsList"></div>
+                                <button onclick="addCustomTextSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="saveCaptureSettings()" class="btn-primary" style="width: 100%; margin-top: 20px;">
+                        Save Settings
+                    </button>
+                    <div id="settingsStatus" class="status-message"></div>
+                </div>
+            </div>
+            </main>
+
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Create Event Modal -->
+    <div id="createEventModal" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content modal-form">
+            <h2>Create New Event</h2>
+            <div class="form-group">
+                <label>Event Name <span class="required">*</span></label>
+                <input type="text" id="newEventName" placeholder="e.g., Tech Conference 2024">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="newEventDescription" rows="3" placeholder="Optional event description"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Event Date <span class="required">*</span></label>
+                <input type="date" id="newEventDate">
+            </div>
+            <div id="createEventError" class="error-message"></div>
+            <div class="modal-buttons">
+                <button onclick="createNewEvent()" class="btn-primary">Create Event</button>
+                <button onclick="closeCreateEventModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Event Modal -->
+    <div id="editEventModal" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content modal-form">
+            <h2>Edit Event</h2>
+            <input type="hidden" id="editEventId">
+            <div class="form-group">
+                <label>Event Name <span class="required">*</span></label>
+                <input type="text" id="editEventName" placeholder="e.g., Tech Conference 2024">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="editEventDescription" rows="3" placeholder="Optional event description"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Event Date <span class="required">*</span></label>
+                <input type="date" id="editEventDate">
+            </div>
+            <div id="editEventError" class="error-message"></div>
+            <div class="modal-buttons">
+                <button onclick="saveEventChanges()" class="btn-primary">Save Changes</button>
+                <button onclick="closeEditEventModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sticker Lightbox -->
+    <div id="stickerLightbox" class="sticker-lightbox" onclick="closeLightbox(event)">
+        <div class="lightbox-content" onclick="event.stopPropagation()">
+            <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+            <span id="lightboxCounter" class="lightbox-counter"></span>
+            <img id="lightboxImage" class="lightbox-image" src="" alt="Sticker">
+            <div class="lightbox-nav">
+                <button id="prevBtn" onclick="previousSticker()">← Previous</button>
+                <button id="nextBtn" onclick="nextSticker()">Next →</button>
+                <button id="downloadBtn" onclick="downloadCurrentSticker()">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="customAlert" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content">
+            <div class="custom-modal-icon">⚠️</div>
+            <p id="customAlertMessage" class="custom-modal-message"></p>
+            <button id="customAlertOk" class="btn-primary custom-modal-btn">OK</button>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="customConfirm" class="custom-modal" style="display: none;">
+        <div class="custom-modal-content">
+            <div class="custom-modal-icon">❓</div>
+            <p id="customConfirmMessage" class="custom-modal-message"></p>
+            <div class="custom-modal-buttons">
+                <button id="customConfirmYes" class="btn-success custom-modal-btn">Yes</button>
+                <button id="customConfirmNo" class="btn-secondary custom-modal-btn">No</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/admin.js"></script>
+    <script>
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
+
