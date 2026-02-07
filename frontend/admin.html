@@ -123,9 +123,15 @@
                             Auto-refresh active
                         </div>
                     </div>
-                    <button onclick="loadSubmissions()" class="btn-secondary">
-                        Refresh Now
-                    </button>
+                    <div class="header-buttons">
+                        <label class="auto-approve-toggle">
+                            <input type="checkbox" id="autoApproveToggle" onchange="toggleAutoApprove()">
+                            <span>Auto-Approve</span>
+                        </label>
+                        <button onclick="loadSubmissions()" class="btn-secondary">
+                            Refresh Now
+                        </button>
+                    </div>
                 </div>
 
                 <div class="filter-controls">
