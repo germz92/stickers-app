@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+
+# Processor (separate repo / local only)
+stickers-processor-main/
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Cursor / local tooling
+.cursor/
+assets/

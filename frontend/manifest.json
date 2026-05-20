@@ -1,0 +1,25 @@
+{
+  "name": "Lumetry Stickers Generator",
+  "short_name": "Stickers",
+  "description": "AI-powered sticker generator",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#00e5ff",
+  "icons": [
+    {
+      "src": "/images/header-image.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/header-image.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
