@@ -394,7 +394,18 @@ function switchTab(tabName) {
         loadSubmissions();
     } else if (tabName === 'presets') {
         loadPresets();
+    } else if (tabName === 'generate') {
+        applyBadgeModeToGenerateTab();
     }
+}
+
+// Show badge fields (and hide custom text) on the Generate tab for badge-mode events
+function applyBadgeModeToGenerateTab() {
+    const badgeMode = currentEvent?.badgeMode === true;
+    const badgeFields = document.getElementById('generateBadgeFields');
+    const customTextGroup = document.getElementById('generateCustomTextGroup');
+    if (badgeFields) badgeFields.style.display = badgeMode ? 'block' : 'none';
+    if (customTextGroup) customTextGroup.style.display = badgeMode ? 'none' : 'block';
 }
 
 // Load Submissions
@@ -663,7 +674,10 @@ function displayEvents() {
             <div class="event-card ${isArchived ? 'archived' : ''}" onclick="selectEvent('${event._id}')">
                 <div class="event-card-header">
                     <h3>${escapeHtml(event.name)}</h3>
-                    ${isArchived ? '<span class="event-badge archived">Archived</span>' : '<span class="event-badge active">Active</span>'}
+                    <div class="event-card-badges">
+                        ${event.badgeMode ? '<span class="event-badge badge-mode">Badge</span>' : ''}
+                        ${isArchived ? '<span class="event-badge archived">Archived</span>' : '<span class="event-badge active">Active</span>'}
+                    </div>
                 </div>
                 <div class="event-card-date">${formattedDate}</div>
                 ${event.description ? `<p class="event-card-description">${escapeHtml(event.description)}</p>` : ''}
@@ -739,6 +753,7 @@ function openCreateEventModal() {
     document.getElementById('newEventName').value = '';
     document.getElementById('newEventDescription').value = '';
     document.getElementById('newEventDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('newEventBadgeMode').checked = false;
     document.getElementById('createEventError').style.display = 'none';
     document.getElementById('createEventModal').style.display = 'flex';
 }
@@ -753,6 +768,7 @@ async function createNewEvent() {
     const name = document.getElementById('newEventName').value.trim();
     const description = document.getElementById('newEventDescription').value.trim();
     const eventDate = document.getElementById('newEventDate').value;
+    const badgeMode = document.getElementById('newEventBadgeMode').checked;
     const errorDiv = document.getElementById('createEventError');
     
     if (!name || !eventDate) {
@@ -768,7 +784,7 @@ async function createNewEvent() {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ name, description, eventDate })
+            body: JSON.stringify({ name, description, eventDate, badgeMode })
         });
         
         if (response.ok) {
@@ -796,6 +812,7 @@ function openEditEventModal(eventId) {
     document.getElementById('editEventName').value = event.name;
     document.getElementById('editEventDescription').value = event.description || '';
     document.getElementById('editEventDate').value = new Date(event.eventDate).toISOString().split('T')[0];
+    document.getElementById('editEventBadgeMode').checked = event.badgeMode === true;
     document.getElementById('editEventError').style.display = 'none';
     document.getElementById('editEventModal').style.display = 'flex';
 }
@@ -811,6 +828,7 @@ async function saveEventChanges() {
     const name = document.getElementById('editEventName').value.trim();
     const description = document.getElementById('editEventDescription').value.trim();
     const eventDate = document.getElementById('editEventDate').value;
+    const badgeMode = document.getElementById('editEventBadgeMode').checked;
     const errorDiv = document.getElementById('editEventError');
     
     if (!name || !eventDate) {
@@ -826,7 +844,7 @@ async function saveEventChanges() {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ name, description, eventDate })
+            body: JSON.stringify({ name, description, eventDate, badgeMode })
         });
         
         if (response.ok) {
@@ -1328,6 +1346,11 @@ async function loadSubmissionForGeneration(id) {
         // Pre-fill form
         document.getElementById('promptInput').value = currentSubmission.prompt || '';
         document.getElementById('customTextInput').value = currentSubmission.customText || '';
+        document.getElementById('genFirstNameInput').value = currentSubmission.firstName || '';
+        document.getElementById('genLastNameInput').value = currentSubmission.lastName || '';
+        document.getElementById('genJobTitleInput').value = currentSubmission.jobTitle || '';
+        document.getElementById('genCompanyInput').value = currentSubmission.company || '';
+        applyBadgeModeToGenerateTab();
         
         validateGenerateForm();
     } catch (error) {
@@ -1370,6 +1393,13 @@ function loadCustomImage(event) {
         // Show replace and clear buttons
         document.getElementById('replaceImageBtn').style.display = 'block';
         document.getElementById('clearImageBtn').style.display = 'block';
+
+        // Fresh upload: clear any prefilled badge fields and reflect badge mode
+        document.getElementById('genFirstNameInput').value = '';
+        document.getElementById('genLastNameInput').value = '';
+        document.getElementById('genJobTitleInput').value = '';
+        document.getElementById('genCompanyInput').value = '';
+        applyBadgeModeToGenerateTab();
         
         validateGenerateForm();
         showStatus('Image uploaded successfully! You can now generate stickers.', 'success', 'generateTab');
@@ -1520,9 +1550,9 @@ async function viewCompletedSubmission(id) {
                                     <div class="sticker-item">
                                         <img src="${img.url}" 
                                              alt="Sticker ${idx + 1}"
-                                             onclick='openLightbox(${JSON.stringify(submission.generatedImages)}, ${idx}, ${JSON.stringify(submission.name)}, ${JSON.stringify(String(submission.eventId?._id || submission.eventId || currentEvent._id))})'
+                                             onclick='openLightbox(${JSON.stringify(submission.generatedImages)}, ${idx}, ${JSON.stringify(submission.name)}, ${JSON.stringify(String(submission.eventId?._id || submission.eventId || currentEvent._id))}, ${JSON.stringify(String(submission._id))})'
                                              style="cursor: pointer;">
-                                        <button onclick="downloadImageFromUrl('${img.url}', '${img.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}')" class="btn-sm btn-primary">
+                                        <button onclick="downloadImageFromUrl('${img.url}', '${img.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}', '${String(submission._id)}')" class="btn-sm btn-primary">
                                             Download
                                         </button>
                                     </div>
@@ -1687,7 +1717,8 @@ async function downloadAllStickers(id) {
             img.url,
             img.filename,
             submission.name,
-            String(submission.eventId?._id || submission.eventId || currentEvent._id)
+            String(submission.eventId?._id || submission.eventId || currentEvent._id),
+            String(submission._id)
         );
         // Small delay between downloads
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1726,6 +1757,11 @@ async function syncSubmissionAfterGeneration(submission) {
 async function generateStickers() {
     const prompt = document.getElementById('promptInput').value.trim();
     const customText = document.getElementById('customTextInput').value.trim();
+    const badgeMode = currentEvent?.badgeMode === true;
+    const firstName = document.getElementById('genFirstNameInput').value.trim();
+    const lastName = document.getElementById('genLastNameInput').value.trim();
+    const jobTitle = document.getElementById('genJobTitleInput').value.trim();
+    const company = document.getElementById('genCompanyInput').value.trim();
     
     if (!currentImage) {
         showStatus('Please select an image first', 'error', 'generateTab');
@@ -1734,6 +1770,11 @@ async function generateStickers() {
 
     if (!prompt) {
         showStatus('Please enter a prompt', 'error', 'generateTab');
+        return;
+    }
+
+    if (badgeMode && (!firstName || !lastName || !jobTitle || !company)) {
+        showStatus('Please enter first name, last name, job title, and company for badge mode', 'error', 'generateTab');
         return;
     }
 
@@ -1760,7 +1801,11 @@ async function generateStickers() {
                 body: JSON.stringify({
                     photo: currentImage,
                     prompt: prompt,
-                    customText: customText
+                    customText: customText,
+                    firstName: badgeMode ? firstName : undefined,
+                    lastName: badgeMode ? lastName : undefined,
+                    jobTitle: badgeMode ? jobTitle : undefined,
+                    company: badgeMode ? company : undefined
                 })
             });
 
@@ -1779,7 +1824,11 @@ async function generateStickers() {
                 },
                 body: JSON.stringify({
                     eventId: currentEvent._id,
-                    name: 'Admin Upload',
+                    name: badgeMode ? `${firstName} ${lastName}`.trim() : 'Admin Upload',
+                    firstName: badgeMode ? firstName : undefined,
+                    lastName: badgeMode ? lastName : undefined,
+                    jobTitle: badgeMode ? jobTitle : undefined,
+                    company: badgeMode ? company : undefined,
                     photo: currentImage,
                     prompt: prompt,
                     customText: customText
@@ -1926,10 +1975,11 @@ async function displayGeneratedImages(submission) {
         // Use S3 URL directly (already print-ready from processor)
         const imageUrl = imageData.url;
         
+        const infoLabel = currentEvent?.badgeMode === true ? '300 DPI • 3.9"×4" badge' : '300 DPI • 4"×3"';
         slot.innerHTML = `
             <img src="${imageUrl}" alt="Generated Sticker ${i + 1}">
-            <div class="image-info">300 DPI • 4"×3"</div>
-            <button class="download-btn" onclick="downloadImageFromUrl('${imageUrl}', 'sticker_${i + 1}_${imageData.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}')">
+            <div class="image-info">${infoLabel}</div>
+            <button class="download-btn" onclick="downloadImageFromUrl('${imageUrl}', 'sticker_${i + 1}_${imageData.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}', '${String(submission._id)}')">
                 Download
             </button>
         `;
@@ -1973,10 +2023,10 @@ function downloadImage(base64Data, filename) {
 }
 
 // Download image from URL via backend proxy (bypasses CORS)
-async function downloadImageFromUrl(url, filename, attendeeName = '', eventId = '') {
+async function downloadImageFromUrl(url, filename, attendeeName = '', eventId = '', submissionId = '') {
     try {
         const resolvedEventId = eventId || currentEvent?._id || '';
-        console.log('🔽 Starting download...', { url, filename, attendeeName, eventId: resolvedEventId });
+        console.log('🔽 Starting download...', { url, filename, attendeeName, eventId: resolvedEventId, submissionId });
         
         // Use backend proxy to download S3 images and bypass CORS
         const params = new URLSearchParams({
@@ -1988,6 +2038,9 @@ async function downloadImageFromUrl(url, filename, attendeeName = '', eventId = 
         }
         if (resolvedEventId) {
             params.set('eventId', resolvedEventId);
+        }
+        if (submissionId) {
+            params.set('submissionId', submissionId);
         }
         const proxyUrl = `${API_BASE_URL}/download?${params.toString()}`;
         console.log('📡 Calling backend proxy:', proxyUrl);
@@ -2710,7 +2763,23 @@ function displayGenerationSettings() {
         positionRadio.checked = true;
     }
 
+    applyBadgeModeToGenerationSettings();
     updateGenerationSettingsView();
+}
+
+// In badge mode the name/title/company are baked into the badge insert, so the
+// download label + name label position controls don't apply and are disabled.
+function applyBadgeModeToGenerationSettings() {
+    const badgeMode = currentEvent?.badgeMode === true;
+    const section = document.getElementById('downloadLabelSection');
+    const note = document.getElementById('badgeModeLabelNote');
+    const showNameCheckbox = document.getElementById('showNameOnDownload');
+    const positionRadios = document.querySelectorAll('input[name="nameLabelPosition"]');
+
+    if (note) note.style.display = badgeMode ? 'block' : 'none';
+    if (section) section.classList.toggle('settings-section-disabled', badgeMode);
+    if (showNameCheckbox) showNameCheckbox.disabled = badgeMode;
+    positionRadios.forEach(radio => { radio.disabled = badgeMode; });
 }
 
 function updateGenerationSettingsView() {
@@ -3222,12 +3291,14 @@ let lightboxStickers = [];
 let lightboxCurrentIndex = 0;
 let lightboxAttendeeName = '';
 let lightboxEventId = '';
+let lightboxSubmissionId = '';
 
-function openLightbox(stickers, startIndex = 0, attendeeName = '', eventId = '') {
+function openLightbox(stickers, startIndex = 0, attendeeName = '', eventId = '', submissionId = '') {
     lightboxStickers = stickers;
     lightboxCurrentIndex = startIndex;
     lightboxAttendeeName = attendeeName || '';
     lightboxEventId = eventId || currentEvent?._id || '';
+    lightboxSubmissionId = submissionId || '';
     updateLightbox();
     document.getElementById('stickerLightbox').classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -3241,6 +3312,7 @@ function closeLightbox(event) {
         lightboxCurrentIndex = 0;
         lightboxAttendeeName = '';
         lightboxEventId = '';
+        lightboxSubmissionId = '';
     }
 }
 
@@ -3274,7 +3346,7 @@ function downloadCurrentSticker() {
     if (lightboxStickers.length === 0) return;
     
     const currentSticker = lightboxStickers[lightboxCurrentIndex];
-    downloadImageFromUrl(currentSticker.url, currentSticker.filename, lightboxAttendeeName, lightboxEventId);
+    downloadImageFromUrl(currentSticker.url, currentSticker.filename, lightboxAttendeeName, lightboxEventId, lightboxSubmissionId);
 }
 
 // Keyboard navigation for lightbox

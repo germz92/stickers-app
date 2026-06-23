@@ -2306,6 +2306,25 @@ footer {
     border: 1px solid rgba(76, 175, 80, 0.3);
 }
 
+.event-badge.badge-mode {
+    background: rgba(0, 229, 255, 0.15);
+    color: #00e5ff;
+    border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+.settings-section-disabled .form-group,
+.settings-section-disabled .field-settings {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+.event-card-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .event-card-date {
     display: flex;
     align-items: center;
@@ -2412,6 +2431,23 @@ footer {
     margin-bottom: 8px;
     color: #b0b0b0;
     font-size: 0.9em;
+}
+
+/* Inline checkbox label inside modal forms (e.g. Badge Mode toggle) */
+.modal-form .form-group .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.modal-form .form-group .checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0;
+    accent-color: #00e5ff;
 }
 
 .modal-form .form-group input,

@@ -31,7 +31,8 @@ const eventSchema = new mongoose.Schema({
   eventDate: { type: Date, required: true },
   isArchived: { type: Boolean, default: false },
   autoApprove: { type: Boolean, default: false }, // Auto-approve pending submissions
-  
+  badgeMode: { type: Boolean, default: false }, // Badge Mode: badge fields + badge-insert download
+
   // Per-event Capture Settings (embedded)
   captureSettings: {
     promptMode: { 
@@ -99,6 +100,10 @@ const Event = mongoose.model('Event', eventSchema);
 const submissionSchema = new mongoose.Schema({
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
   name: { type: String, required: true },
+  firstName: { type: String, default: '' }, // Badge Mode
+  lastName: { type: String, default: '' },   // Badge Mode
+  jobTitle: { type: String, default: '' },   // Badge Mode
+  company: { type: String, default: '' },    // Badge Mode
   email: { type: String, default: '' },
   phone: { type: String, default: '' },
   photo: { type: String, required: true }, // S3 URL
@@ -270,12 +275,12 @@ app.post('/api/auth/login/admin', async (req, res) => {
 // Create new submission (capture page)
 app.post('/api/submissions', authenticateCapture, async (req, res) => {
   try {
-    const { eventId, name, email, phone, photo, prompt, customText } = req.body;
-    
-    if (!eventId || !name || !photo || !prompt) {
-      return res.status(400).json({ error: 'Event, name, photo, and prompt are required' });
+    const { eventId, name, firstName, lastName, jobTitle, company, email, phone, photo, prompt, customText } = req.body;
+
+    if (!eventId || !photo || !prompt) {
+      return res.status(400).json({ error: 'Event, photo, and prompt are required' });
     }
-    
+
     // Verify event exists and is not archived
     const event = await Event.findById(eventId);
     if (!event) {
@@ -283,6 +288,19 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     }
     if (event.isArchived) {
       return res.status(400).json({ error: 'Cannot submit to archived event' });
+    }
+
+    // In badge mode the display name is derived from first/last name; otherwise use the single name field
+    const resolvedName = event.badgeMode
+      ? `${(firstName || '').trim()} ${(lastName || '').trim()}`.trim()
+      : (name || '').trim();
+
+    if (event.badgeMode) {
+      if (!(firstName || '').trim() || !(lastName || '').trim() || !(jobTitle || '').trim() || !(company || '').trim()) {
+        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+      }
+    } else if (!resolvedName) {
+      return res.status(400).json({ error: 'Name is required' });
     }
 
     // Upload photo to S3
@@ -299,13 +317,17 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
 
     const submission = new Submission({
       eventId,
-      name,
+      name: resolvedName,
+      firstName: event.badgeMode ? (firstName || '').trim() : '',
+      lastName: event.badgeMode ? (lastName || '').trim() : '',
+      jobTitle: event.badgeMode ? (jobTitle || '').trim() : '',
+      company: event.badgeMode ? (company || '').trim() : '',
       email: email || '',
       phone: phone || '',
       photo: photoUrl, // Store S3 URL instead of base64
       photoThumb,
       prompt,
-      customText: customText || '',
+      customText: event.badgeMode ? '' : (customText || ''),
       status: 'pending'
     });
 
@@ -324,7 +346,7 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
 // Admin Generate tab: create submission already queued for processor (front of line)
 app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) => {
   try {
-    const { eventId, name, photo, prompt, customText } = req.body;
+    const { eventId, name, firstName, lastName, jobTitle, company, photo, prompt, customText } = req.body;
 
     if (!eventId || !photo || !prompt) {
       return res.status(400).json({ error: 'Event, photo, and prompt are required' });
@@ -338,6 +360,16 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
       return res.status(400).json({ error: 'Cannot submit to archived event' });
     }
 
+    const badgeMode = event.badgeMode === true;
+    if (badgeMode) {
+      if (!(firstName || '').trim() || !(lastName || '').trim() || !(jobTitle || '').trim() || !(company || '').trim()) {
+        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+      }
+    }
+    const resolvedName = badgeMode
+      ? (`${(firstName || '').trim()} ${(lastName || '').trim()}`.trim() || name || 'Admin Upload')
+      : (name || 'Admin Upload');
+
     const photoUrl = await uploadImageToS3(photo, 'submissions');
     let photoThumb = '';
     try {
@@ -348,13 +380,17 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
 
     const submission = new Submission({
       eventId,
-      name: name || 'Admin Upload',
+      name: resolvedName,
+      firstName: badgeMode ? (firstName || '').trim() : '',
+      lastName: badgeMode ? (lastName || '').trim() : '',
+      jobTitle: badgeMode ? (jobTitle || '').trim() : '',
+      company: badgeMode ? (company || '').trim() : '',
       email: '',
       phone: '',
       photo: photoUrl,
       photoThumb,
       prompt,
-      customText: customText || '',
+      customText: badgeMode ? '' : (customText || ''),
       status: 'approved',
       approvedAt: new Date(0),
       retryCount: 0,
@@ -660,6 +696,11 @@ const LABEL_MARGIN = Math.max(8, Math.round(PRINT_DPI * 0.02));
 const LABEL_BAND_HEIGHT = Math.round(PRINT_HEIGHT * (140 / 1800));
 const REGISTRATION_MARK_PX = 8; // corner squares so RIP sees full 4×3 bounds (not 1px dots)
 
+// Badge Mode: white insert that drops into the badge's 3.9" x 4" empty area
+const BADGE_INSERT_WIDTH = Math.round(3.9 * PRINT_DPI); // 1170 @ 300 DPI
+const BADGE_INSERT_HEIGHT = Math.round(4 * PRINT_DPI);  // 1200 @ 300 DPI
+const BADGE_ACCENT_COLOR = '#E2231A'; // red accent (job title + rule), matches sample badge
+
 async function cleanStickerAlpha(imageBuffer) {
   const { data, info } = await sharp(imageBuffer)
     .ensureAlpha()
@@ -935,27 +976,155 @@ async function applyAttendeeNameLabel(imageBuffer, name, position = 'bottomLeft'
     .toBuffer();
 }
 
+// Badge Mode: compose the generated avatar with name/title/company text onto a
+// white 3.9"x4" insert sized to drop into the badge's empty white area.
+async function compositeToBadgeInsert(avatarBuffer, badge = {}) {
+  const firstName = (badge.firstName || '').trim();
+  const lastName = (badge.lastName || '').trim();
+  const jobTitle = (badge.jobTitle || '').trim();
+  const company = (badge.company || '').trim();
+
+  const W = BADGE_INSERT_WIDTH;
+  const H = BADGE_INSERT_HEIGHT;
+  const pad = Math.round(W * 0.055);
+  const gap = Math.round(W * 0.03);
+
+  // Right column holds the avatar; left column holds the text block.
+  const avatarColWidth = Math.round(W * 0.44);
+  const avatarColX = W - pad - avatarColWidth;
+  const avatarRegionHeight = H - pad * 2;
+  const textColX = pad;
+  const textColWidth = avatarColX - gap - pad;
+
+  // Clean + resize the avatar to fit inside the right column.
+  const cleaned = await cleanStickerAlpha(avatarBuffer);
+  const resizedAvatar = await sharp(cleaned)
+    .resize(avatarColWidth, avatarRegionHeight, { fit: 'inside', kernel: 'lanczos3' })
+    .toBuffer();
+  const avatarMeta = await sharp(resizedAvatar).metadata();
+  const avatarLeft = avatarColX + Math.round((avatarColWidth - avatarMeta.width) / 2);
+  const avatarTop = pad + Math.round((avatarRegionHeight - avatarMeta.height) / 2);
+
+  // Font sizing that shrinks to fit the text column width.
+  const fitFont = (text, base, factor = 0.6, min = 22) => {
+    const len = Math.max(1, (text || '').length);
+    const fitted = Math.floor(textColWidth / (len * factor));
+    return Math.max(min, Math.min(base, fitted));
+  };
+  const nameLen = Math.max(firstName.length, lastName.length, 1);
+  const nameFont = Math.max(44, Math.min(116, Math.floor(textColWidth / (nameLen * 0.62))));
+  const jobFont = fitFont(jobTitle, 46, 0.55, 24);
+  const companyFont = fitFont(company, 38, 0.5, 22);
+
+  const lineGap = Math.round(nameFont * 0.08);
+  const ruleMarginTop = Math.round(nameFont * 0.45);
+  const ruleH = Math.max(4, Math.round(PRINT_DPI * 0.02));
+  const ruleWidth = Math.round(textColWidth * 0.5);
+  const jobMarginTop = Math.round(jobFont * 0.95);
+  const companyMarginTop = Math.round(companyFont * 0.7);
+
+  // Vertically center the whole text block within the insert.
+  let blockH = nameFont + lineGap + nameFont + ruleMarginTop + ruleH;
+  if (jobTitle) blockH += jobMarginTop + jobFont;
+  if (company) blockH += companyMarginTop + companyFont;
+  const top = Math.max(pad, Math.round((H - blockH) / 2));
+
+  let y = top;
+  const firstBaseline = y + nameFont * 0.82;
+  y += nameFont + lineGap;
+  const lastBaseline = y + nameFont * 0.82;
+  y += nameFont + ruleMarginTop;
+  const ruleTop = y;
+  y += ruleH;
+  let jobBaseline = null;
+  if (jobTitle) {
+    y += jobMarginTop;
+    jobBaseline = y + jobFont * 0.82;
+    y += jobFont;
+  }
+  let companyBaseline = null;
+  if (company) {
+    y += companyMarginTop;
+    companyBaseline = y + companyFont * 0.82;
+  }
+
+  const textParts = [];
+  if (firstName) {
+    textParts.push(`<text x="${textColX}" y="${firstBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${nameFont}" font-weight="800" fill="#111111">${escapeXml(firstName)}</text>`);
+  }
+  if (lastName) {
+    textParts.push(`<text x="${textColX}" y="${lastBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${nameFont}" font-weight="400" fill="#111111">${escapeXml(lastName)}</text>`);
+  }
+  textParts.push(`<rect x="${textColX}" y="${ruleTop}" width="${ruleWidth}" height="${ruleH}" fill="${BADGE_ACCENT_COLOR}" />`);
+  if (jobTitle && jobBaseline !== null) {
+    textParts.push(`<text x="${textColX}" y="${jobBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${jobFont}" font-weight="600" fill="${BADGE_ACCENT_COLOR}">${escapeXml(jobTitle)}</text>`);
+  }
+  if (company && companyBaseline !== null) {
+    textParts.push(`<text x="${textColX}" y="${companyBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${companyFont}" font-weight="400" fill="#555555">${escapeXml(company)}</text>`);
+  }
+
+  const svg = Buffer.from(
+    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${textParts.join('')}</svg>`
+  );
+
+  return sharp({
+    create: {
+      width: W,
+      height: H,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 }
+    }
+  })
+    .composite([
+      { input: resizedAvatar, left: avatarLeft, top: avatarTop },
+      { input: svg, left: 0, top: 0 }
+    ])
+    .withMetadata({ density: PRINT_DPI })
+    .png({ compressionLevel: 9, density: PRINT_DPI, force: true })
+    .toBuffer();
+}
+
 // Proxy download endpoint to bypass CORS
 app.get('/api/download', authenticateAdmin, async (req, res) => {
   try {
-    const { url, filename, name, eventId } = req.query;
+    const { url, filename, name, eventId, submissionId } = req.query;
     
     if (!url) {
       return res.status(400).json({ error: 'URL parameter is required' });
     }
 
-    let generationSettings = getDefaultGenerationSettings();
-    if (eventId) {
-      const event = await Event.findById(eventId).select('generationSettings');
-      if (event?.generationSettings) {
-        generationSettings = {
-          ...getDefaultGenerationSettings(),
-          ...JSON.parse(JSON.stringify(event.generationSettings))
-        };
-      }
+    // Load the submission (for badge fields) when provided
+    let submission = null;
+    if (submissionId) {
+      submission = await Submission.findById(submissionId)
+        .select('name firstName lastName jobTitle company eventId');
     }
 
-    const attendeeName = (name || '').trim();
+    // Robust fallback: if no (valid) submissionId was passed, find the submission
+    // that owns this generated image by its S3 URL. This keeps badge fields working
+    // even if an older/cached frontend doesn't forward submissionId.
+    if (!submission && url) {
+      submission = await Submission.findOne({ 'generatedImages.url': url })
+        .select('name firstName lastName jobTitle company eventId');
+    }
+
+    // Resolve the event: prefer explicit eventId, else fall back to the submission's event
+    const resolvedEventId = eventId || (submission && submission.eventId ? String(submission.eventId) : null);
+    let event = null;
+    if (resolvedEventId) {
+      event = await Event.findById(resolvedEventId).select('generationSettings badgeMode');
+    }
+
+    let generationSettings = getDefaultGenerationSettings();
+    if (event?.generationSettings) {
+      generationSettings = {
+        ...getDefaultGenerationSettings(),
+        ...JSON.parse(JSON.stringify(event.generationSettings))
+      };
+    }
+
+    const badgeMode = event?.badgeMode === true;
+    const attendeeName = (name || (submission && submission.name) || '').trim();
     const showNameLabel = generationSettings.showNameOnDownload !== false;
     const useCustomFilename = generationSettings.downloadFilenameMode === 'customName';
     const filenameBase = useCustomFilename
@@ -980,19 +1149,39 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
     const downloadFilename = buildDownloadFilename(filenameBase, imageNumber);
     
     console.log('🎨 Starting download processing...');
-    console.log(`📏 Compositing to ${PRINT_WIDTH}x${PRINT_HEIGHT}px (4"×3" @ ${PRINT_DPI} DPI)`);
-    const nameLabelPosition = normalizeNameLabelPosition(generationSettings.nameLabelPosition);
 
-    let processedImage = await compositeToPrintCanvas(imageBuffer, {
-      labelPosition: showNameLabel && attendeeName ? nameLabelPosition : null
-    });
+    let processedImage;
+    if (badgeMode) {
+      console.log(`🪪 Badge Mode: compositing to ${BADGE_INSERT_WIDTH}x${BADGE_INSERT_HEIGHT}px (3.9"×4" @ ${PRINT_DPI} DPI)`);
+      let badgeFirstName = submission?.firstName || '';
+      let badgeLastName = submission?.lastName || '';
+      // Fallback for submissions created before badge fields existed
+      if (!badgeFirstName && !badgeLastName && attendeeName) {
+        const parts = attendeeName.split(/\s+/);
+        badgeFirstName = parts.shift() || '';
+        badgeLastName = parts.join(' ');
+      }
+      processedImage = await compositeToBadgeInsert(imageBuffer, {
+        firstName: badgeFirstName,
+        lastName: badgeLastName,
+        jobTitle: submission?.jobTitle || '',
+        company: submission?.company || ''
+      });
+    } else {
+      console.log(`📏 Compositing to ${PRINT_WIDTH}x${PRINT_HEIGHT}px (4"×3" @ ${PRINT_DPI} DPI)`);
+      const nameLabelPosition = normalizeNameLabelPosition(generationSettings.nameLabelPosition);
 
-    if (showNameLabel && attendeeName) {
-      console.log(`🏷️ Adding attendee label (${nameLabelPosition}): ${attendeeName}`);
-      processedImage = await applyAttendeeNameLabel(processedImage, attendeeName, nameLabelPosition);
+      processedImage = await compositeToPrintCanvas(imageBuffer, {
+        labelPosition: showNameLabel && attendeeName ? nameLabelPosition : null
+      });
+
+      if (showNameLabel && attendeeName) {
+        console.log(`🏷️ Adding attendee label (${nameLabelPosition}): ${attendeeName}`);
+        processedImage = await applyAttendeeNameLabel(processedImage, attendeeName, nameLabelPosition);
+      }
+
+      processedImage = await finalizePrintPng(processedImage);
     }
-
-    processedImage = await finalizePrintPng(processedImage);
 
     const outMeta = await sharp(processedImage).metadata();
     console.log(`✅ Download ready: ${outMeta.width}x${outMeta.height}px @ ${outMeta.density || PRINT_DPI} DPI`);
@@ -1122,7 +1311,7 @@ app.post('/api/submissions/:id/logs', authenticateProcessor, async (req, res) =>
 // Admin Generate tab: update prompts/photo and queue at front of processor line
 app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (req, res) => {
   try {
-    const { prompt, customText, photo } = req.body;
+    const { prompt, customText, photo, firstName, lastName, jobTitle, company } = req.body;
     const submission = await Submission.findById(req.params.id);
 
     if (!submission) {
@@ -1138,7 +1327,22 @@ app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (
     }
 
     if (prompt !== undefined) submission.prompt = prompt;
-    if (customText !== undefined) submission.customText = customText;
+
+    const badgeMode = event.badgeMode === true;
+    if (badgeMode) {
+      // Badge events use first/last name + job title + company; custom text never applies
+      if (firstName !== undefined) submission.firstName = (firstName || '').trim();
+      if (lastName !== undefined) submission.lastName = (lastName || '').trim();
+      if (jobTitle !== undefined) submission.jobTitle = (jobTitle || '').trim();
+      if (company !== undefined) submission.company = (company || '').trim();
+      if (!submission.firstName || !submission.lastName || !submission.jobTitle || !submission.company) {
+        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+      }
+      submission.name = `${submission.firstName} ${submission.lastName}`.trim();
+      submission.customText = '';
+    } else if (customText !== undefined) {
+      submission.customText = customText;
+    }
 
     if (photo !== undefined) {
       if (typeof photo === 'string' && photo.startsWith('data:')) {
@@ -1661,7 +1865,7 @@ app.get('/api/events/:id', async (req, res) => {
 // Create event (admin only)
 app.post('/api/events', authenticateAdmin, async (req, res) => {
   try {
-    const { name, description, eventDate } = req.body;
+    const { name, description, eventDate, badgeMode } = req.body;
     
     if (!name || !eventDate) {
       return res.status(400).json({ error: 'Name and event date are required' });
@@ -1671,6 +1875,7 @@ app.post('/api/events', authenticateAdmin, async (req, res) => {
       name,
       description: description || '',
       eventDate: new Date(eventDate),
+      badgeMode: badgeMode === true,
       captureSettings: {
         promptMode: 'free',
         customTextMode: 'free'
@@ -1688,7 +1893,7 @@ app.post('/api/events', authenticateAdmin, async (req, res) => {
 // Update event (admin only)
 app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
   try {
-    const { name, description, eventDate, captureSettings, generationSettings } = req.body;
+    const { name, description, eventDate, badgeMode, captureSettings, generationSettings } = req.body;
     
     const event = await Event.findById(req.params.id);
     
@@ -1699,6 +1904,7 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
     if (name) event.name = name;
     if (description !== undefined) event.description = description;
     if (eventDate) event.eventDate = new Date(eventDate);
+    if (badgeMode !== undefined) event.badgeMode = badgeMode === true;
     
     if (captureSettings) {
       event.captureSettings = {

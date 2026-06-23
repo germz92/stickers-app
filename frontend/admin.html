@@ -233,6 +233,25 @@
                                 </select>
                             </div>
 
+                            <div id="generateBadgeFields" style="display: none;">
+                                <div class="form-group">
+                                    <label><strong>First Name</strong> <span class="required">*</span></label>
+                                    <input type="text" id="genFirstNameInput" placeholder="First name" maxlength="50">
+                                </div>
+                                <div class="form-group">
+                                    <label><strong>Last Name</strong> <span class="required">*</span></label>
+                                    <input type="text" id="genLastNameInput" placeholder="Last name" maxlength="50">
+                                </div>
+                                <div class="form-group">
+                                    <label><strong>Job Title</strong> <span class="required">*</span></label>
+                                    <input type="text" id="genJobTitleInput" placeholder="e.g., Marketing Manager" maxlength="60">
+                                </div>
+                                <div class="form-group">
+                                    <label><strong>Company</strong> <span class="required">*</span></label>
+                                    <input type="text" id="genCompanyInput" placeholder="e.g., Velocity Badges" maxlength="60">
+                                </div>
+                            </div>
+
                             <div class="form-group">
                                 <label>
                                     <strong>Prompt Text</strong>
@@ -244,7 +263,7 @@
                                 </div>
                             </div>
 
-                            <div class="form-group">
+                            <div class="form-group" id="generateCustomTextGroup">
                                 <label>
                                     <strong>Custom Text</strong>
                                 </label>
@@ -608,8 +627,11 @@
                 </div>
 
                 <div class="settings-container">
-                    <div class="settings-section">
+                    <div class="settings-section" id="downloadLabelSection">
                         <h3>Download Label</h3>
+                        <div id="badgeModeLabelNote" class="hint" style="display: none; margin-bottom: 12px; color: #00e5ff;">
+                            Badge Mode is on for this event &mdash; the name, job title, and company are rendered into the badge insert automatically, so the download label and position settings are disabled.
+                        </div>
                         <div class="form-group">
                             <label class="toggle-label">
                                 <input type="checkbox" id="showNameOnDownload" checked onchange="updateGenerationSettingsView()">
@@ -697,6 +719,13 @@
                 <label>Event Date <span class="required">*</span></label>
                 <input type="date" id="newEventDate">
             </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="newEventBadgeMode">
+                    <span>Badge Mode</span>
+                </label>
+                <div class="hint">Collects First/Last Name, Job Title, Company (no custom text) and downloads as a badge insert.</div>
+            </div>
             <div id="createEventError" class="error-message"></div>
             <div class="modal-buttons">
                 <button onclick="createNewEvent()" class="btn-primary">Create Event</button>
@@ -721,6 +750,13 @@
             <div class="form-group">
                 <label>Event Date <span class="required">*</span></label>
                 <input type="date" id="editEventDate">
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="editEventBadgeMode">
+                    <span>Badge Mode</span>
+                </label>
+                <div class="hint">Collects First/Last Name, Job Title, Company (no custom text) and downloads as a badge insert.</div>
             </div>
             <div id="editEventError" class="error-message"></div>
             <div class="modal-buttons">

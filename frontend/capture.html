@@ -102,7 +102,7 @@
                     </div>
 
                     <div class="form-section">
-                        <div class="form-group">
+                        <div class="form-group" id="nameGroup">
                             <label for="nameInput">
                                 <strong>Your Name</strong>
                                 <span class="required">*</span>
@@ -113,6 +113,58 @@
                                 placeholder="Enter your name"
                                 maxlength="50"
                                 autofocus
+                            >
+                        </div>
+
+                        <div class="form-group" id="firstNameGroup" style="display: none;">
+                            <label for="firstNameInput">
+                                <strong>First Name</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="firstNameInput" 
+                                placeholder="First name"
+                                maxlength="50"
+                            >
+                        </div>
+
+                        <div class="form-group" id="lastNameGroup" style="display: none;">
+                            <label for="lastNameInput">
+                                <strong>Last Name</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="lastNameInput" 
+                                placeholder="Last name"
+                                maxlength="50"
+                            >
+                        </div>
+
+                        <div class="form-group" id="jobTitleGroup" style="display: none;">
+                            <label for="jobTitleInput">
+                                <strong>Job Title</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="jobTitleInput" 
+                                placeholder="e.g., Marketing Manager"
+                                maxlength="60"
+                            >
+                        </div>
+
+                        <div class="form-group" id="companyGroup" style="display: none;">
+                            <label for="companyInput">
+                                <strong>Company</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="companyInput" 
+                                placeholder="e.g., Velocity Badges"
+                                maxlength="60"
                             >
                         </div>
 

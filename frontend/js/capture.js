@@ -596,8 +596,40 @@ function applyCaptureSettings(settings) {
         customTextInput.value = '';
     }
     
+    // Badge Mode: swap single name field for badge fields, hide custom text entirely
+    applyBadgeFieldVisibility();
+
     // Re-validate form
     validateForm();
+}
+
+// Show/hide badge-specific fields based on the selected event's badgeMode
+function applyBadgeFieldVisibility() {
+    const badgeMode = isBadgeMode();
+    const nameGroup = document.getElementById('nameGroup');
+    const firstNameGroup = document.getElementById('firstNameGroup');
+    const lastNameGroup = document.getElementById('lastNameGroup');
+    const jobTitleGroup = document.getElementById('jobTitleGroup');
+    const companyGroup = document.getElementById('companyGroup');
+    const customTextGroup = document.querySelector('#customTextInput')?.closest('.form-group');
+
+    if (nameGroup) nameGroup.style.display = badgeMode ? 'none' : 'flex';
+    if (firstNameGroup) firstNameGroup.style.display = badgeMode ? 'flex' : 'none';
+    if (lastNameGroup) lastNameGroup.style.display = badgeMode ? 'flex' : 'none';
+    if (jobTitleGroup) jobTitleGroup.style.display = badgeMode ? 'flex' : 'none';
+    if (companyGroup) companyGroup.style.display = badgeMode ? 'flex' : 'none';
+
+    if (badgeMode) {
+        // Custom text never applies in badge mode
+        if (customTextGroup) customTextGroup.style.display = 'none';
+        const customTextInput = document.getElementById('customTextInput');
+        if (customTextInput) customTextInput.value = '';
+    }
+}
+
+// Whether the currently selected event is in badge mode
+function isBadgeMode() {
+    return !!(selectedEvent && selectedEvent.badgeMode === true);
 }
 
 // Select prompt preset
@@ -647,6 +679,10 @@ function retakePhoto() {
     
     // Clear form
     document.getElementById('nameInput').value = '';
+    document.getElementById('firstNameInput').value = '';
+    document.getElementById('lastNameInput').value = '';
+    document.getElementById('jobTitleInput').value = '';
+    document.getElementById('companyInput').value = '';
     document.getElementById('emailInput').value = '';
     document.getElementById('phoneInput').value = '';
     document.getElementById('promptInput').value = '';
@@ -690,32 +726,57 @@ function showStep(step) {
 
 // Validate form
 function validateForm() {
-    const name = document.getElementById('nameInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
-    const customText = document.getElementById('customTextInput').value.trim();
     
     // Prompt is always required (either free entry, locked, or selected from presets)
     const promptValid = !!prompt;
     
-    // Custom text is optional by default
+    let fieldsValid;
+    if (isBadgeMode()) {
+        // Badge mode requires first name, last name, job title, and company
+        const firstName = document.getElementById('firstNameInput').value.trim();
+        const lastName = document.getElementById('lastNameInput').value.trim();
+        const jobTitle = document.getElementById('jobTitleInput').value.trim();
+        const company = document.getElementById('companyInput').value.trim();
+        fieldsValid = !!(firstName && lastName && jobTitle && company);
+    } else {
+        fieldsValid = !!document.getElementById('nameInput').value.trim();
+    }
+    
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = !(name && promptValid && photoData);
+    submitBtn.disabled = !(fieldsValid && promptValid && photoData);
 }
 
 // Add event listeners for form validation
 document.getElementById('nameInput')?.addEventListener('input', validateForm);
 document.getElementById('promptInput')?.addEventListener('input', validateForm);
+document.getElementById('firstNameInput')?.addEventListener('input', validateForm);
+document.getElementById('lastNameInput')?.addEventListener('input', validateForm);
+document.getElementById('jobTitleInput')?.addEventListener('input', validateForm);
+document.getElementById('companyInput')?.addEventListener('input', validateForm);
 
 // Submit capture
 async function submitCapture() {
-    const name = document.getElementById('nameInput').value.trim();
+    const badgeMode = isBadgeMode();
+    const firstName = document.getElementById('firstNameInput').value.trim();
+    const lastName = document.getElementById('lastNameInput').value.trim();
+    const jobTitle = document.getElementById('jobTitleInput').value.trim();
+    const company = document.getElementById('companyInput').value.trim();
+    const name = badgeMode
+        ? `${firstName} ${lastName}`.trim()
+        : document.getElementById('nameInput').value.trim();
     const email = document.getElementById('emailInput').value.trim();
     const phone = document.getElementById('phoneInput').value.trim();
     const prompt = document.getElementById('promptInput').value.trim();
-    const customText = document.getElementById('customTextInput').value.trim();
+    const customText = badgeMode ? '' : document.getElementById('customTextInput').value.trim();
     
     if (!name || !prompt || !photoData) {
         await customAlert('Please fill in all required fields');
+        return;
+    }
+
+    if (badgeMode && (!firstName || !lastName || !jobTitle || !company)) {
+        await customAlert('Please fill in first name, last name, job title, and company');
         return;
     }
     
@@ -738,6 +799,10 @@ async function submitCapture() {
             body: JSON.stringify({
                 eventId: selectedEvent._id,
                 name,
+                firstName: badgeMode ? firstName : '',
+                lastName: badgeMode ? lastName : '',
+                jobTitle: badgeMode ? jobTitle : '',
+                company: badgeMode ? company : '',
                 email,
                 phone,
                 photo: photoData,
@@ -767,6 +832,10 @@ function startOver() {
     // Reset form data but keep the selected event
     photoData = null;
     document.getElementById('nameInput').value = '';
+    document.getElementById('firstNameInput').value = '';
+    document.getElementById('lastNameInput').value = '';
+    document.getElementById('jobTitleInput').value = '';
+    document.getElementById('companyInput').value = '';
     document.getElementById('emailInput').value = '';
     document.getElementById('phoneInput').value = '';
     document.getElementById('promptInput').value = '';
