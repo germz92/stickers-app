@@ -986,48 +986,147 @@ async function compositeToBadgeInsert(avatarBuffer, badge = {}) {
 
   const W = BADGE_INSERT_WIDTH;
   const H = BADGE_INSERT_HEIGHT;
-  const pad = Math.round(W * 0.055);
-  const gap = Math.round(W * 0.03);
+  const padV = Math.round(H * 0.028);
+  const padH = Math.round(W * 0.04);
+  const gap = Math.round(W * 0.04);
 
   // Right column holds the avatar; left column holds the text block.
   const avatarColWidth = Math.round(W * 0.44);
-  const avatarColX = W - pad - avatarColWidth;
-  const avatarRegionHeight = H - pad * 2;
-  const textColX = pad;
-  const textColWidth = avatarColX - gap - pad;
+  const avatarColX = W - padH - avatarColWidth;
+  const avatarRegionHeight = H - padV * 2;
+  const textColX = padH;
+  const textColWidth = avatarColX - gap - textColX;
+  const textRegionHeight = avatarRegionHeight;
 
-  // Clean + resize the avatar to fit inside the right column.
+  const estimateTextWidth = (text, fontSize, weight = 'normal') => {
+    const factor = weight === '800' ? 0.64 : weight === '600' ? 0.58 : 0.54;
+    return Math.max(1, (text || '').length) * fontSize * factor;
+  };
+
+  const clampFontToWidth = (text, fontSize, maxWidth, weight = 'normal') => {
+    if (!text) return fontSize;
+    const width = estimateTextWidth(text, fontSize, weight);
+    if (width <= maxWidth) return fontSize;
+    return Math.max(22, Math.floor(fontSize * (maxWidth / width)));
+  };
+
+  const clampAllFontsToColumn = (fonts) => {
+    let [nf, jf, cf] = fonts;
+    const longestName = firstName.length >= lastName.length ? firstName : lastName;
+    if (longestName) nf = clampFontToWidth(longestName, nf, textColWidth, '800');
+    if (jobTitle) jf = clampFontToWidth(jobTitle, jf, textColWidth, '600');
+    if (company) cf = clampFontToWidth(company, cf, textColWidth, '400');
+    return [nf, jf, cf];
+  };
+
+  // Clean avatar and scale opaque art to fill as much vertical space as possible.
   const cleaned = await cleanStickerAlpha(avatarBuffer);
-  const resizedAvatar = await sharp(cleaned)
-    .resize(avatarColWidth, avatarRegionHeight, { fit: 'inside', kernel: 'lanczos3' })
-    .toBuffer();
-  const avatarMeta = await sharp(resizedAvatar).metadata();
-  const avatarLeft = avatarColX + Math.round((avatarColWidth - avatarMeta.width) / 2);
-  const avatarTop = pad + Math.round((avatarRegionHeight - avatarMeta.height) / 2);
+  const sourceMeta = await sharp(cleaned).metadata();
+  const bounds = await getOpaqueBounds(cleaned);
+  let resizedAvatar;
+  let avatarMeta;
+  if (bounds) {
+    const opaqueW = bounds.maxX - bounds.minX + 1;
+    const opaqueH = bounds.maxY - bounds.minY + 1;
+    const targetH = Math.round(avatarRegionHeight * 0.92);
+    const targetW = Math.round(avatarColWidth * 0.92);
+    const scale = Math.min(targetW / opaqueW, targetH / opaqueH);
+    const drawW = Math.max(1, Math.round(sourceMeta.width * scale));
+    const drawH = Math.max(1, Math.round(sourceMeta.height * scale));
+    resizedAvatar = await sharp(cleaned)
+      .resize(drawW, drawH, { fit: 'inside', kernel: 'lanczos3' })
+      .toBuffer();
+    avatarMeta = await sharp(resizedAvatar).metadata();
+    const placedBounds = await getOpaqueBounds(resizedAvatar);
+    if (placedBounds) {
+      avatarMeta._bounds = placedBounds;
+    }
+  } else {
+    resizedAvatar = await sharp(cleaned)
+      .resize(avatarColWidth, avatarRegionHeight, { fit: 'inside', kernel: 'lanczos3' })
+      .toBuffer();
+    avatarMeta = await sharp(resizedAvatar).metadata();
+  }
 
-  // Font sizing that shrinks to fit the text column width.
+  let avatarLeft = avatarColX + Math.round((avatarColWidth - avatarMeta.width) / 2);
+  let avatarTop = padV;
+  if (avatarMeta._bounds) {
+    avatarTop = padV + Math.round(avatarRegionHeight / 2 - avatarMeta._bounds.cy);
+  } else {
+    avatarTop = padV + Math.round((avatarRegionHeight - avatarMeta.height) / 2);
+  }
+  avatarTop = Math.max(padV, Math.min(avatarTop, H - padV - avatarMeta.height));
+  if (avatarMeta._bounds) {
+    const opaqueLeft = avatarLeft + avatarMeta._bounds.minX;
+    const minOpaqueLeft = avatarColX + Math.round(avatarColWidth * 0.04);
+    if (opaqueLeft < minOpaqueLeft) {
+      avatarLeft += minOpaqueLeft - opaqueLeft;
+    }
+  }
+
+  // Font sizing: start from width, then scale up to fill available text height.
   const fitFont = (text, base, factor = 0.6, min = 22) => {
     const len = Math.max(1, (text || '').length);
     const fitted = Math.floor(textColWidth / (len * factor));
     return Math.max(min, Math.min(base, fitted));
   };
   const nameLen = Math.max(firstName.length, lastName.length, 1);
-  const nameFont = Math.max(44, Math.min(116, Math.floor(textColWidth / (nameLen * 0.62))));
-  const jobFont = fitFont(jobTitle, 46, 0.55, 24);
-  const companyFont = fitFont(company, 38, 0.5, 22);
+  let nameFont = Math.max(48, Math.min(120, Math.floor(textColWidth / (nameLen * 0.64))));
+  let jobFont = fitFont(jobTitle, 52, 0.55, 26);
+  let companyFont = fitFont(company, 44, 0.5, 24);
+  [nameFont, jobFont, companyFont] = clampAllFontsToColumn([nameFont, jobFont, companyFont]);
 
-  const lineGap = Math.round(nameFont * 0.08);
-  const ruleMarginTop = Math.round(nameFont * 0.45);
-  const ruleH = Math.max(4, Math.round(PRINT_DPI * 0.02));
-  const ruleWidth = Math.round(textColWidth * 0.5);
-  const jobMarginTop = Math.round(jobFont * 0.95);
-  const companyMarginTop = Math.round(companyFont * 0.7);
+  const measureBlock = (fonts, gaps) => {
+    const [nf, jf, cf] = fonts;
+    const [lineGap, ruleMarginTop, jobMarginTop, companyMarginTop] = gaps;
+    let h = nf + lineGap + nf + ruleMarginTop + Math.max(4, Math.round(PRINT_DPI * 0.022));
+    if (jobTitle) h += jobMarginTop + jf;
+    if (company) h += companyMarginTop + cf;
+    return h;
+  };
 
-  // Vertically center the whole text block within the insert.
-  let blockH = nameFont + lineGap + nameFont + ruleMarginTop + ruleH;
-  if (jobTitle) blockH += jobMarginTop + jobFont;
-  if (company) blockH += companyMarginTop + companyFont;
-  const top = Math.max(pad, Math.round((H - blockH) / 2));
+  let lineGap = Math.round(nameFont * 0.05);
+  let ruleMarginTop = Math.round(nameFont * 0.28);
+  let ruleH = Math.max(4, Math.round(PRINT_DPI * 0.022));
+  let ruleWidth = Math.min(Math.round(textColWidth * 0.55), textColWidth);
+  let jobMarginTop = Math.round(jobFont * 0.5);
+  let companyMarginTop = Math.round(companyFont * 0.42);
+
+  let blockH = measureBlock(
+    [nameFont, jobFont, companyFont],
+    [lineGap, ruleMarginTop, jobMarginTop, companyMarginTop]
+  );
+  const targetBlockH = Math.round(textRegionHeight * 0.88);
+  if (blockH > 0 && blockH < targetBlockH) {
+    const verticalScale = Math.min(1.22, targetBlockH / blockH);
+    const scaledFonts = [
+      Math.round(nameFont * verticalScale),
+      Math.round(jobFont * verticalScale),
+      Math.round(companyFont * verticalScale)
+    ];
+    const widthLimitedFonts = clampAllFontsToColumn(scaledFonts);
+    const widthScale = Math.min(
+      widthLimitedFonts[0] / scaledFonts[0] || 1,
+      jobTitle ? (widthLimitedFonts[1] / scaledFonts[1] || 1) : 1,
+      company ? (widthLimitedFonts[2] / scaledFonts[2] || 1) : 1
+    );
+    const scale = verticalScale * widthScale;
+    nameFont = Math.round(nameFont * scale);
+    jobFont = Math.round(jobFont * scale);
+    companyFont = Math.round(companyFont * scale);
+    [nameFont, jobFont, companyFont] = clampAllFontsToColumn([nameFont, jobFont, companyFont]);
+    lineGap = Math.round(lineGap * scale);
+    ruleMarginTop = Math.round(ruleMarginTop * scale);
+    ruleH = Math.max(4, Math.round(ruleH * scale));
+    jobMarginTop = Math.round(jobMarginTop * scale);
+    companyMarginTop = Math.round(companyMarginTop * scale);
+    blockH = measureBlock(
+      [nameFont, jobFont, companyFont],
+      [lineGap, ruleMarginTop, jobMarginTop, companyMarginTop]
+    );
+  }
+
+  const top = Math.max(padV, Math.round(padV + (textRegionHeight - blockH) / 2));
 
   let y = top;
   const firstBaseline = y + nameFont * 0.82;
@@ -1064,7 +1163,14 @@ async function compositeToBadgeInsert(avatarBuffer, badge = {}) {
   }
 
   const svg = Buffer.from(
-    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${textParts.join('')}</svg>`
+    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="badgeTextCol">
+          <rect x="${textColX}" y="0" width="${textColWidth}" height="${H}" />
+        </clipPath>
+      </defs>
+      <g clip-path="url(#badgeTextCol)">${textParts.join('')}</g>
+    </svg>`
   );
 
   return sharp({
