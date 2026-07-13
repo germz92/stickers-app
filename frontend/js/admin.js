@@ -1552,7 +1552,7 @@ async function viewCompletedSubmission(id) {
                                              alt="Sticker ${idx + 1}"
                                              onclick='openLightbox(${JSON.stringify(submission.generatedImages)}, ${idx}, ${JSON.stringify(submission.name)}, ${JSON.stringify(String(submission.eventId?._id || submission.eventId || currentEvent._id))}, ${JSON.stringify(String(submission._id))})'
                                              style="cursor: pointer;">
-                                        <button onclick="downloadImageFromUrl('${img.url}', '${img.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}', '${String(submission._id)}')" class="btn-sm btn-primary">
+                                        <button onclick='downloadImageFromUrl(${JSON.stringify(img.url)}, ${JSON.stringify(img.filename)}, ${JSON.stringify(submission.name)}, ${JSON.stringify(String(submission.eventId?._id || submission.eventId || currentEvent._id))}, ${JSON.stringify(String(submission._id))})' class="btn-sm btn-primary">
                                             Download
                                         </button>
                                     </div>
@@ -1979,10 +1979,22 @@ async function displayGeneratedImages(submission) {
         slot.innerHTML = `
             <img src="${imageUrl}" alt="Generated Sticker ${i + 1}">
             <div class="image-info">${infoLabel}</div>
-            <button class="download-btn" onclick="downloadImageFromUrl('${imageUrl}', 'sticker_${i + 1}_${imageData.filename}', ${JSON.stringify(submission.name)}, '${String(submission.eventId?._id || submission.eventId || currentEvent._id)}', '${String(submission._id)}')">
-                Download
-            </button>
         `;
+
+        // Build the download button via DOM so the attendee name (and any special
+        // characters) can't break an inline onclick attribute. The backend proxy
+        // renders per-mode output (badge insert vs 4"×3" sticker) using eventId +
+        // submissionId, so both event types work through the same call.
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'download-btn';
+        downloadBtn.textContent = 'Download';
+        const dlFilename = `sticker_${i + 1}_${imageData.filename}`;
+        const dlEventId = String(submission.eventId?._id || submission.eventId || currentEvent._id);
+        const dlSubmissionId = String(submission._id);
+        downloadBtn.addEventListener('click', () => {
+            downloadImageFromUrl(imageUrl, dlFilename, submission.name, dlEventId, dlSubmissionId);
+        });
+        slot.appendChild(downloadBtn);
     }
     
     showStatus('✅ Generation complete! Images are ready for printing at 300 DPI, 4"×3".', 'success', 'generateTab');

@@ -986,17 +986,59 @@ async function compositeToBadgeInsert(avatarBuffer, badge = {}) {
 
   const W = BADGE_INSERT_WIDTH;
   const H = BADGE_INSERT_HEIGHT;
-  const padV = Math.round(H * 0.028);
+  const padV = Math.round(H * 0.022); // trimmed to reclaim vertical room for the avatar
   const padH = Math.round(W * 0.04);
-  const gap = Math.round(W * 0.04);
+  const gap = Math.round(W * 0.025); // tightened column gap so text/art get more room
 
-  // Right column holds the avatar; left column holds the text block.
-  const avatarColWidth = Math.round(W * 0.44);
-  const avatarColX = W - padH - avatarColWidth;
+  // Fill ~97% of the vertical region; text column never shrinks below the floor.
+  const AVATAR_FILL = 0.97;
+  const innerWidth = W - padH * 2;
   const avatarRegionHeight = H - padV * 2;
+  const textRegionHeight = avatarRegionHeight;
+  const minTextColWidth = Math.round(W * 0.34); // readability floor for name/title/company
+  const maxAvatarWidth = innerWidth - gap - minTextColWidth; // horizontal budget for the avatar
+
+  // Clean avatar, crop to its opaque art, then scale height-first, widening only
+  // as far as the avatar's width budget allows. Wide poses (e.g. arm extended)
+  // grow much taller than a fixed column would allow, without changing aspect
+  // ratio. Cropping to the opaque box keeps the scaled image within the canvas
+  // and makes centering exact.
+  const cleaned = await cleanStickerAlpha(avatarBuffer);
+  const bounds = await getOpaqueBounds(cleaned);
+  let resizedAvatar;
+  let avatarMeta;
+  let avatarColWidth;
+  if (bounds) {
+    const opaqueW = bounds.maxX - bounds.minX + 1;
+    const opaqueH = bounds.maxY - bounds.minY + 1;
+    const targetH = avatarRegionHeight * AVATAR_FILL;
+    // Height-first, then clamp so the opaque width can't exceed the budget.
+    let scale = targetH / opaqueH;
+    if (opaqueW * scale > maxAvatarWidth) {
+      scale = maxAvatarWidth / opaqueW;
+    }
+    const drawW = Math.max(1, Math.round(opaqueW * scale));
+    const drawH = Math.max(1, Math.round(opaqueH * scale));
+    resizedAvatar = await sharp(cleaned)
+      .extract({ left: bounds.minX, top: bounds.minY, width: opaqueW, height: opaqueH })
+      .resize(drawW, drawH, { fit: 'fill', kernel: 'lanczos3' })
+      .toBuffer();
+    avatarMeta = await sharp(resizedAvatar).metadata();
+    // Column hugs the drawn art (+ small breathing margin), capped at the budget.
+    avatarColWidth = Math.min(maxAvatarWidth, Math.round(drawW * 1.06));
+  } else {
+    avatarColWidth = maxAvatarWidth;
+    resizedAvatar = await sharp(cleaned)
+      .resize(avatarColWidth, avatarRegionHeight, { fit: 'inside', kernel: 'lanczos3' })
+      .toBuffer();
+    avatarMeta = await sharp(resizedAvatar).metadata();
+  }
+
+  // Derive the two columns from the avatar's actual footprint.
+  avatarColWidth = Math.max(1, Math.min(avatarColWidth, maxAvatarWidth));
+  const avatarColX = W - padH - avatarColWidth;
   const textColX = padH;
   const textColWidth = avatarColX - gap - textColX;
-  const textRegionHeight = avatarRegionHeight;
 
   const estimateTextWidth = (text, fontSize, weight = 'normal') => {
     const factor = weight === '800' ? 0.64 : weight === '600' ? 0.58 : 0.54;
@@ -1019,50 +1061,10 @@ async function compositeToBadgeInsert(avatarBuffer, badge = {}) {
     return [nf, jf, cf];
   };
 
-  // Clean avatar and scale opaque art to fill as much vertical space as possible.
-  const cleaned = await cleanStickerAlpha(avatarBuffer);
-  const sourceMeta = await sharp(cleaned).metadata();
-  const bounds = await getOpaqueBounds(cleaned);
-  let resizedAvatar;
-  let avatarMeta;
-  if (bounds) {
-    const opaqueW = bounds.maxX - bounds.minX + 1;
-    const opaqueH = bounds.maxY - bounds.minY + 1;
-    const targetH = Math.round(avatarRegionHeight * 0.92);
-    const targetW = Math.round(avatarColWidth * 0.92);
-    const scale = Math.min(targetW / opaqueW, targetH / opaqueH);
-    const drawW = Math.max(1, Math.round(sourceMeta.width * scale));
-    const drawH = Math.max(1, Math.round(sourceMeta.height * scale));
-    resizedAvatar = await sharp(cleaned)
-      .resize(drawW, drawH, { fit: 'inside', kernel: 'lanczos3' })
-      .toBuffer();
-    avatarMeta = await sharp(resizedAvatar).metadata();
-    const placedBounds = await getOpaqueBounds(resizedAvatar);
-    if (placedBounds) {
-      avatarMeta._bounds = placedBounds;
-    }
-  } else {
-    resizedAvatar = await sharp(cleaned)
-      .resize(avatarColWidth, avatarRegionHeight, { fit: 'inside', kernel: 'lanczos3' })
-      .toBuffer();
-    avatarMeta = await sharp(resizedAvatar).metadata();
-  }
-
-  let avatarLeft = avatarColX + Math.round((avatarColWidth - avatarMeta.width) / 2);
-  let avatarTop = padV;
-  if (avatarMeta._bounds) {
-    avatarTop = padV + Math.round(avatarRegionHeight / 2 - avatarMeta._bounds.cy);
-  } else {
-    avatarTop = padV + Math.round((avatarRegionHeight - avatarMeta.height) / 2);
-  }
+  // The avatar is cropped to its opaque art, so center it directly in its column.
+  const avatarLeft = Math.max(0, avatarColX + Math.round((avatarColWidth - avatarMeta.width) / 2));
+  let avatarTop = padV + Math.round((avatarRegionHeight - avatarMeta.height) / 2);
   avatarTop = Math.max(padV, Math.min(avatarTop, H - padV - avatarMeta.height));
-  if (avatarMeta._bounds) {
-    const opaqueLeft = avatarLeft + avatarMeta._bounds.minX;
-    const minOpaqueLeft = avatarColX + Math.round(avatarColWidth * 0.04);
-    if (opaqueLeft < minOpaqueLeft) {
-      avatarLeft += minOpaqueLeft - opaqueLeft;
-    }
-  }
 
   // Font sizing: start from width, then scale up to fill available text height.
   const fitFont = (text, base, factor = 0.6, min = 22) => {
@@ -1490,10 +1492,18 @@ app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) 
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Create a duplicate submission for regeneration
+    // Create a duplicate submission for regeneration.
+    // Carry over badge fields + contact info so badge-mode downloads and
+    // notifications keep working on the regenerated copy.
     const newSubmission = new Submission({
       eventId: originalSubmission.eventId,
       name: originalSubmission.name,
+      firstName: originalSubmission.firstName || '',
+      lastName: originalSubmission.lastName || '',
+      jobTitle: originalSubmission.jobTitle || '',
+      company: originalSubmission.company || '',
+      email: originalSubmission.email || '',
+      phone: originalSubmission.phone || '',
       photo: originalSubmission.photo,
       photoThumb: originalSubmission.photoThumb || '',
       prompt: originalSubmission.prompt,
