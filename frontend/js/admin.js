@@ -589,12 +589,12 @@ function startPolling() {
     
     isPolling = true;
     
-    // Poll every 3 seconds
+    // Poll every 2 seconds
     pollInterval = setInterval(() => {
         if (isPolling && token) {
             loadSubmissions(true); // Silent refresh
         }
-    }, 3000);
+    }, 2000);
 }
 
 // Stop polling
@@ -1005,6 +1005,17 @@ function filterSubmissions() {
     });
     
     const activeFilter = document.querySelector('input[name="statusFilter"]:checked')?.value || 'all';
+
+    // During a silent (poll-driven) refresh, skip all DOM work when nothing that
+    // affects the rendered cards has changed. Re-rendering identical content was
+    // destroying/recreating the card currently under the cursor, which reset the
+    // hover highlight and the download-button reveal every poll (visible flicker).
+    const renderSignature = computeRenderSignature(filtered, activeFilter, sortOrder);
+    if (lastFilterSilent && renderSignature === lastRenderSignature) {
+        updateLoadMoreButton();
+        return;
+    }
+
     // Completed tab must re-render so processedAt sort and sticker previews stay correct after regeneration
     const needsFullRender = activeFilter === 'completed'
         || !lastFilterSilent
@@ -1015,7 +1026,27 @@ function filterSubmissions() {
     } else {
         patchSubmissionCardsInPlace(filtered);
     }
+    lastRenderSignature = renderSignature;
     updateLoadMoreButton();
+}
+
+// Signature of everything the rendered cards depend on, so a silent poll can
+// no-op when nothing visible changed (prevents hover flicker on re-render).
+let lastRenderSignature = null;
+function computeRenderSignature(list, activeFilter, sortOrder) {
+    return `${activeFilter}|${sortOrder}|` + list.map(s => [
+        s._id,
+        s.status,
+        s.name,
+        s.processedAt || '',
+        s.createdAt || '',
+        s.failureReason || '',
+        s.retryCount || 0,
+        (s.generatedImages || []).map(g => g.url).join(','),
+        s.photoThumb || s.photo || '',
+        s.prompt || '',
+        s.customText || ''
+    ].join('~')).join('||');
 }
 
 function canPatchSubmissionsInPlace(filtered) {
@@ -1078,12 +1109,22 @@ function displaySubmissions(submissions) {
                              decoding="async">
                         <div class="sticker-thumbnails">
                             ${sub.generatedImages.slice(0, 4).map((img, idx) => `
-                                <img src="${getStickerThumbUrl(sub, idx)}" 
-                                     alt="Sticker ${idx + 1}" 
-                                     class="sticker-thumb"
-                                     loading="lazy"
-                                     decoding="async"
-                                     onclick='openLightbox(${JSON.stringify(sub.generatedImages)}, ${idx}, ${JSON.stringify(sub.name)}, ${JSON.stringify(String(sub.eventId?._id || sub.eventId || currentEvent._id))})'>
+                                <div class="sticker-thumb-wrap">
+                                    <img src="${getStickerThumbUrl(sub, idx)}" 
+                                         alt="Sticker ${idx + 1}" 
+                                         class="sticker-thumb"
+                                         loading="lazy"
+                                         decoding="async"
+                                         onclick='openLightbox(${JSON.stringify(sub.generatedImages)}, ${idx}, ${JSON.stringify(sub.name)}, ${JSON.stringify(String(sub.eventId?._id || sub.eventId || currentEvent._id))}, ${JSON.stringify(String(sub._id))})'>
+                                    <button type="button" class="sticker-thumb-download" title="Download" aria-label="Download sticker"
+                                            onclick='event.stopPropagation(); downloadImageFromUrl(${JSON.stringify(img.url)}, ${JSON.stringify(img.filename)}, ${JSON.stringify(sub.name)}, ${JSON.stringify(String(sub.eventId?._id || sub.eventId || currentEvent._id))}, ${JSON.stringify(String(sub._id))})'>
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M12 3v12"></path>
+                                            <path d="M7 11l5 5 5-5"></path>
+                                            <path d="M5 20h14"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             `).join('')}
                         </div>
                     </div>
