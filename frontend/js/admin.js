@@ -1075,7 +1075,12 @@ function patchSubmissionCardsInPlace(filtered) {
 // Display Submissions
 function displaySubmissions(submissions) {
     const container = document.getElementById('submissionsList');
-    
+
+    // On the Completed filter, switch to a uniform even grid so double-width
+    // completed cards tile consistently instead of leaving an odd leftover track.
+    const activeFilter = document.querySelector('input[name="statusFilter"]:checked')?.value || 'all';
+    container.classList.toggle('submissions-grid--completed', activeFilter === 'completed');
+
     if (submissions.length === 0) {
         container.innerHTML = '<p class="loading">No submissions found</p>';
         return;

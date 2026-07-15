@@ -514,6 +514,16 @@ header h1 {
     grid-column: span 2; /* Take up 2 columns width */
 }
 
+/* Completed filter: uniform, even two-up grid so double-width completed cards
+   always tile cleanly (no odd leftover track making one card own a column). */
+.submissions-grid--completed {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.submissions-grid--completed .completed-card {
+    grid-column: auto;
+}
+
 .completed-preview {
     display: grid;
     grid-template-columns: 150px 1fr;
