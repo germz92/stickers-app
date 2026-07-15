@@ -10,7 +10,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const { uploadImageToS3, uploadBufferToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
 const crypto = require('crypto');
-const { sendCompletionNotifications } = require('./notifications');
+const { sendCompletionNotifications, sendEmailNotification, sendSmsNotification } = require('./notifications');
 
 const app = express();
 
@@ -1307,12 +1307,18 @@ app.get('/api/download', authenticateAdmin, async (req, res) => {
 // Update submission details (admin page or processor)
 app.patch('/api/submissions/:id', authenticateAdminOrProcessor, async (req, res) => {
   try {
-    const { photo, prompt, customText, processingStartedAt, resetForGeneration } = req.body;
+    const { photo, prompt, customText, email, phone, firstName, lastName, jobTitle, company, processingStartedAt, resetForGeneration } = req.body;
     
     const updateData = {};
     if (photo !== undefined) updateData.photo = photo;
     if (prompt !== undefined) updateData.prompt = prompt;
     if (customText !== undefined) updateData.customText = customText;
+    if (email !== undefined) updateData.email = (email || '').trim();
+    if (phone !== undefined) updateData.phone = (phone || '').trim();
+    if (firstName !== undefined) updateData.firstName = (firstName || '').trim();
+    if (lastName !== undefined) updateData.lastName = (lastName || '').trim();
+    if (jobTitle !== undefined) updateData.jobTitle = (jobTitle || '').trim();
+    if (company !== undefined) updateData.company = (company || '').trim();
     if (processingStartedAt !== undefined) updateData.processingStartedAt = processingStartedAt;
 
     // Admin manual Generate: clear prior run so Completed sort and previews stay correct
@@ -1335,6 +1341,42 @@ app.patch('/api/submissions/:id', authenticateAdminOrProcessor, async (req, res)
 
     res.json(submission);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Resend completion notifications (email and/or SMS) for a submission (admin only)
+app.post('/api/submissions/:id/notify', authenticateAdmin, async (req, res) => {
+  try {
+    const submission = await Submission.findById(req.params.id).populate('eventId');
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // channels: array like ['email','sms']; defaults to both
+    const requested = Array.isArray(req.body?.channels) && req.body.channels.length
+      ? req.body.channels
+      : ['email', 'sms'];
+
+    const results = {};
+    if (requested.includes('email')) {
+      if (!submission.email) {
+        results.email = { sent: false, reason: 'No email address on file' };
+      } else {
+        results.email = await sendEmailNotification(submission, submission.eventId);
+      }
+    }
+    if (requested.includes('sms')) {
+      if (!submission.phone) {
+        results.sms = { sent: false, reason: 'No phone number on file' };
+      } else {
+        results.sms = await sendSmsNotification(submission, submission.eventId);
+      }
+    }
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Resend notification error:', error);
     res.status(500).json({ error: error.message });
   }
 });

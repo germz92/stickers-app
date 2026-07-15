@@ -1558,7 +1558,10 @@ async function viewCompletedSubmission(id) {
         if (!response.ok) throw new Error('Failed to fetch submission');
         
         const submission = await response.json();
-        
+
+        const isBadge = !!(submission.firstName || submission.company || currentEvent?.badgeMode);
+        const val = (v) => escapeHtml(v || '');
+
         // Create modal HTML
         const modalHTML = `
             <div class="modal-overlay" onclick="closeCompletedModal()">
@@ -1569,12 +1572,31 @@ async function viewCompletedSubmission(id) {
                     <div class="completed-details">
                         <div class="left-column">
                             <img src="${submission.photo}" alt="Original" class="original-photo">
-                            <div class="submission-metadata">
-                                <p><strong>Name:</strong> ${escapeHtml(submission.name)}</p>
-                                <p><strong>Completed:</strong> ${new Date(submission.processedAt || submission.createdAt).toLocaleString()}</p>
-                                <p><strong>Prompt:</strong> ${escapeHtml(submission.prompt)}</p>
-                                ${submission.customText ? `<p><strong>Custom Text:</strong> ${escapeHtml(submission.customText)}</p>` : ''}
-                            </div>
+                            <form class="submission-edit-form" id="submissionEditForm" onsubmit="return false">
+                                <p class="submission-meta-static"><strong>Completed:</strong> ${new Date(submission.processedAt || submission.createdAt).toLocaleString()}</p>
+                                <p class="submission-meta-static"><strong>Prompt:</strong> ${escapeHtml(submission.prompt)}</p>
+
+                                ${isBadge ? `
+                                    <div class="edit-field-row">
+                                        <label>First Name<input type="text" id="editFirstName" value="${val(submission.firstName)}"></label>
+                                        <label>Last Name<input type="text" id="editLastName" value="${val(submission.lastName)}"></label>
+                                    </div>
+                                    <label class="edit-field">Job Title<input type="text" id="editJobTitle" value="${val(submission.jobTitle)}"></label>
+                                    <label class="edit-field">Company<input type="text" id="editCompany" value="${val(submission.company)}"></label>
+                                ` : `
+                                    <label class="edit-field">Custom Text<input type="text" id="editCustomText" value="${val(submission.customText)}"></label>
+                                `}
+
+                                <label class="edit-field">Email<input type="email" id="editEmail" value="${val(submission.email)}" placeholder="none on file"></label>
+                                <label class="edit-field">Phone<input type="tel" id="editPhone" value="${val(submission.phone)}" placeholder="none on file"></label>
+
+                                <div class="edit-form-actions">
+                                    <button type="button" class="btn-sm btn-primary" onclick="saveSubmissionDetails('${id}', ${isBadge})">Save Changes</button>
+                                    <button type="button" class="btn-sm btn-success" onclick="resendNotification('${id}', 'email', this)">Resend Email</button>
+                                    <button type="button" class="btn-sm btn-success" onclick="resendNotification('${id}', 'sms', this)">Resend Text</button>
+                                </div>
+                                <p class="edit-form-status" id="editFormStatus"></p>
+                            </form>
                             ${submission.processingLogs && submission.processingLogs.length > 0 ? `
                                 <details class="processing-logs">
                                     <summary>▼ Processing Logs</summary>
@@ -1633,6 +1655,98 @@ async function viewCompletedSubmission(id) {
 function closeCompletedModal() {
     const modal = document.querySelector('.modal-overlay');
     if (modal) modal.remove();
+}
+
+function setEditFormStatus(message, type = '') {
+    const el = document.getElementById('editFormStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'edit-form-status' + (type ? ` ${type}` : '');
+}
+
+// Save edited contact/text fields from the View Details modal
+async function saveSubmissionDetails(id, isBadge) {
+    const getVal = (elId) => document.getElementById(elId)?.value ?? undefined;
+
+    const payload = {
+        email: getVal('editEmail'),
+        phone: getVal('editPhone')
+    };
+    if (isBadge) {
+        payload.firstName = getVal('editFirstName');
+        payload.lastName = getVal('editLastName');
+        payload.jobTitle = getVal('editJobTitle');
+        payload.company = getVal('editCompany');
+    } else {
+        payload.customText = getVal('editCustomText');
+    }
+
+    setEditFormStatus('Saving…');
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error('Save failed');
+        setEditFormStatus('Saved.', 'success');
+        await loadSubmissions(true);
+    } catch (error) {
+        console.error('Save details error:', error);
+        setEditFormStatus('Failed to save changes.', 'error');
+    }
+}
+
+// Resend an email or SMS notification for a submission
+async function resendNotification(id, channel, btn) {
+    const label = channel === 'sms' ? 'text' : 'email';
+
+    // Persist any edits to contact info first so we send to the latest value
+    const emailVal = document.getElementById('editEmail')?.value;
+    const phoneVal = document.getElementById('editPhone')?.value;
+
+    if (btn) btn.disabled = true;
+    setEditFormStatus(`Sending ${label}…`);
+    try {
+        if (emailVal !== undefined || phoneVal !== undefined) {
+            await fetch(`${API_BASE_URL}/submissions/${id}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email: emailVal, phone: phoneVal })
+            });
+        }
+
+        const response = await fetch(`${API_BASE_URL}/submissions/${id}/notify`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ channels: [channel] })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Send failed');
+
+        const result = channel === 'sms' ? data.results?.sms : data.results?.email;
+        if (result?.sent) {
+            setEditFormStatus(`${label.charAt(0).toUpperCase() + label.slice(1)} sent to ${result.to}.`, 'success');
+        } else {
+            setEditFormStatus(`Could not send ${label}: ${result?.reason || result?.error || 'unknown error'}.`, 'error');
+        }
+    } catch (error) {
+        console.error('Resend notification error:', error);
+        setEditFormStatus(`Failed to send ${label}.`, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 // Regenerate submission

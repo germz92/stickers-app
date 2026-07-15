@@ -711,6 +711,84 @@ header h1 {
     color: #e0e0e0;
 }
 
+/* Editable details form in the View Details modal */
+.submission-edit-form {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.submission-meta-static {
+    margin: 0;
+    color: #b0b0b0;
+    font-size: 0.9em;
+}
+
+.submission-meta-static strong {
+    color: #e0e0e0;
+}
+
+.submission-edit-form .edit-field,
+.submission-edit-form .edit-field-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #9aa0a6;
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.submission-edit-form .edit-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.submission-edit-form input {
+    width: 100%;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 0.95rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.submission-edit-form input:focus {
+    outline: none;
+    border-color: rgba(0, 229, 255, 0.6);
+    box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.15);
+}
+
+.edit-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.edit-form-status {
+    margin: 0;
+    min-height: 1.1em;
+    font-size: 0.85em;
+    color: #9aa0a6;
+}
+
+.edit-form-status.success {
+    color: #4caf50;
+}
+
+.edit-form-status.error {
+    color: #ff6b6b;
+}
+
 .processing-logs {
     background: rgba(0, 0, 0, 0.3);
     padding: 15px;
