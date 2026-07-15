@@ -1804,42 +1804,65 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
       console.log('ℹ️ Branding not enabled or logo URL missing');
     }
 
-    // Upload generated images to S3 (with logo overlay if enabled)
-    console.log(`Uploading ${generatedImages.length} generated images to S3...`);
-    const uploadedImages = [];
-    
-    for (const img of generatedImages) {
-      try {
-        let imageData = img.data;
-        
-        // Apply logo overlay if branding is enabled
-        if (brandingEnabled && logoBuffer) {
-          try {
-            // Get original image metadata
-            const originalBuffer = Buffer.from(img.data.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-            const metadata = await sharp(originalBuffer).metadata();
-            
-            console.log(`🎨 Applying logo to ${img.filename}...`);
-            imageData = await applyLogoOverlay(img.data, logoBuffer, event.brandingSettings, metadata);
-            console.log(`✅ Logo applied to ${img.filename}`);
-          } catch (overlayError) {
-            console.error(`❌ Failed to apply logo to ${img.filename}:`, overlayError.message);
-            // Continue with original image if overlay fails
-          }
+    // Resolve each generated image to a stored S3 URL.
+    // The processor now uploads results to S3 directly and sends { url, filename },
+    // so we avoid a second base64 hop + re-upload. Legacy callers may still send
+    // base64 { data, filename }. We only download + re-upload when we actually
+    // need to composite a branding logo onto the image.
+    console.log(`Finalizing ${generatedImages.length} generated images...`);
+
+    async function resolveGeneratedImage(img) {
+      const filename = img.filename;
+      const createdAt = img.createdAt || new Date();
+
+      // Fast path (no branding): keep the processor's S3 URL untouched, or upload
+      // base64 directly if a legacy payload was sent.
+      if (!(brandingEnabled && logoBuffer)) {
+        if (img.url) {
+          return { url: img.url, filename, createdAt };
         }
-        
-        const imageUrl = await uploadImageToS3(imageData, 'results');
-        uploadedImages.push({
-          url: imageUrl, // Store S3 URL instead of base64
-          filename: img.filename,
-          createdAt: img.createdAt || new Date()
-        });
-        console.log(`Uploaded: ${img.filename}`);
-      } catch (uploadError) {
-        console.error(`Failed to upload ${img.filename}:`, uploadError);
-        // Continue with other images even if one fails
+        return { url: await uploadImageToS3(img.data, 'results'), filename, createdAt };
+      }
+
+      // Branding enabled: get the image as base64, composite the logo, re-upload.
+      let base64 = img.data;
+      if (!base64 && img.url) {
+        const resp = await axios.get(img.url, { responseType: 'arraybuffer' });
+        base64 = `data:image/png;base64,${Buffer.from(resp.data).toString('base64')}`;
+      }
+      let imageData = base64;
+      try {
+        const originalBuffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        const metadata = await sharp(originalBuffer).metadata();
+        console.log(`🎨 Applying logo to ${filename}...`);
+        imageData = await applyLogoOverlay(base64, logoBuffer, event.brandingSettings, metadata);
+        console.log(`✅ Logo applied to ${filename}`);
+      } catch (overlayError) {
+        console.error(`❌ Failed to apply logo to ${filename}:`, overlayError.message);
+        // Fall back to the un-branded image if overlay fails
+      }
+      return { url: await uploadImageToS3(imageData, 'results'), filename, createdAt };
+    }
+
+    // Run with bounded concurrency; preserve original order and drop failures.
+    // Logo compositing is CPU/memory heavy, so cap it lower than pure pass-through.
+    const uploadConcurrency = brandingEnabled ? 2 : generatedImages.length;
+    const resolved = new Array(generatedImages.length).fill(null);
+    let nextIndex = 0;
+    async function uploadWorker() {
+      while (nextIndex < generatedImages.length) {
+        const idx = nextIndex++;
+        try {
+          resolved[idx] = await resolveGeneratedImage(generatedImages[idx]);
+        } catch (uploadError) {
+          console.error(`Failed to finalize ${generatedImages[idx]?.filename}:`, uploadError.message);
+        }
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(uploadConcurrency, generatedImages.length) }, uploadWorker)
+    );
+    const uploadedImages = resolved.filter(Boolean);
 
     // Update submission with uploaded images
     submission.generatedImages = uploadedImages;
