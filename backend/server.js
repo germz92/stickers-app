@@ -10,7 +10,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const { uploadImageToS3, uploadBufferToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
 const crypto = require('crypto');
-const { sendCompletionNotifications, sendEmailNotification, sendSmsNotification } = require('./notifications');
+const { sendCompletionNotifications, sendEmailNotification, sendSmsNotification, getGalleryUrl } = require('./notifications');
 
 const app = express();
 
@@ -2039,6 +2039,100 @@ app.get('/api/events/:id', async (req, res) => {
     
     res.json(event);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export completed attendees as CSV (admin only)
+const EXPORT_FIELD_HEADERS = {
+  name: 'Name',
+  firstName: 'First Name',
+  lastName: 'Last Name',
+  jobTitle: 'Job Title',
+  company: 'Company',
+  email: 'Email',
+  phone: 'Phone',
+  customText: 'Custom Text',
+  prompt: 'Prompt',
+  createdAt: 'Date Submitted',
+  processedAt: 'Date Completed',
+  galleryUrl: 'Gallery Link',
+  status: 'Status',
+  submissionId: 'Submission ID'
+};
+
+function escapeCsvValue(value) {
+  const str = value === null || value === undefined ? '' : String(value);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function formatExportDate(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
+app.post('/api/events/:id/export', authenticateAdmin, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const requested = Array.isArray(req.body?.fields) ? req.body.fields : [];
+    const fields = requested.filter((key) => Object.prototype.hasOwnProperty.call(EXPORT_FIELD_HEADERS, key));
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'Select at least one valid field to export' });
+    }
+
+    const submissions = await Submission.find({
+      eventId: event._id,
+      status: 'completed'
+    })
+      .select('name firstName lastName jobTitle company email phone customText prompt createdAt processedAt status')
+      .sort({ createdAt: 1 });
+
+    const headerRow = fields.map((key) => escapeCsvValue(EXPORT_FIELD_HEADERS[key])).join(',');
+    const dataRows = submissions.map((sub) => {
+      const values = fields.map((key) => {
+        switch (key) {
+          case 'name': return escapeCsvValue(sub.name || '');
+          case 'firstName': return escapeCsvValue(sub.firstName || '');
+          case 'lastName': return escapeCsvValue(sub.lastName || '');
+          case 'jobTitle': return escapeCsvValue(sub.jobTitle || '');
+          case 'company': return escapeCsvValue(sub.company || '');
+          case 'email': return escapeCsvValue(sub.email || '');
+          case 'phone': return escapeCsvValue(sub.phone || '');
+          case 'customText': return escapeCsvValue(sub.customText || '');
+          case 'prompt': return escapeCsvValue(sub.prompt || '');
+          case 'createdAt': return escapeCsvValue(formatExportDate(sub.createdAt));
+          case 'processedAt': return escapeCsvValue(formatExportDate(sub.processedAt));
+          case 'galleryUrl': return escapeCsvValue(getGalleryUrl(sub._id));
+          case 'status': return escapeCsvValue(sub.status || 'completed');
+          case 'submissionId': return escapeCsvValue(String(sub._id));
+          default: return '';
+        }
+      });
+      return values.join(',');
+    });
+
+    const csv = [headerRow, ...dataRows].join('\r\n');
+    const eventSlug = String(event.name || 'event')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'event';
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = `attendees-${eventSlug}-${dateStamp}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\uFEFF' + csv);
+  } catch (error) {
+    console.error('Export attendees error:', error);
     res.status(500).json({ error: error.message });
   }
 });

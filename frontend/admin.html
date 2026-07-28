@@ -616,6 +616,80 @@
                         Save Settings
                     </button>
                     <div id="settingsStatus" class="status-message"></div>
+
+                    <div class="settings-section export-attendees-section">
+                        <h3>Export Attendees</h3>
+                        <p class="hint">Download a CSV of completed submissions for the current event. Choose which columns to include.</p>
+
+                        <div class="export-field-actions">
+                            <button type="button" class="btn-secondary btn-sm" onclick="setExportFieldsChecked(true)">Select All</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="setExportFieldsChecked(false)">Clear</button>
+                        </div>
+
+                        <div class="export-fields-grid" id="exportFieldsGrid">
+                            <label class="export-field-option" data-export-group="regular">
+                                <input type="checkbox" name="exportField" value="name" checked>
+                                <span>Name</span>
+                            </label>
+                            <label class="export-field-option" data-export-group="badge">
+                                <input type="checkbox" name="exportField" value="firstName" checked>
+                                <span>First Name</span>
+                            </label>
+                            <label class="export-field-option" data-export-group="badge">
+                                <input type="checkbox" name="exportField" value="lastName" checked>
+                                <span>Last Name</span>
+                            </label>
+                            <label class="export-field-option" data-export-group="badge">
+                                <input type="checkbox" name="exportField" value="jobTitle" checked>
+                                <span>Job Title</span>
+                            </label>
+                            <label class="export-field-option" data-export-group="badge">
+                                <input type="checkbox" name="exportField" value="company" checked>
+                                <span>Company</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="email" checked>
+                                <span>Email</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="phone" checked>
+                                <span>Phone</span>
+                            </label>
+                            <label class="export-field-option" data-export-group="regular">
+                                <input type="checkbox" name="exportField" value="customText" checked>
+                                <span>Custom Text</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="prompt">
+                                <span>Prompt</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="createdAt" checked>
+                                <span>Date Submitted</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="processedAt">
+                                <span>Date Completed</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="galleryUrl" checked>
+                                <span>Gallery Link</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="status">
+                                <span>Status</span>
+                            </label>
+                            <label class="export-field-option">
+                                <input type="checkbox" name="exportField" value="submissionId">
+                                <span>Submission ID</span>
+                            </label>
+                        </div>
+
+                        <button type="button" onclick="exportAttendees()" class="btn-primary" id="exportAttendeesBtn" style="margin-top: 16px;">
+                            Download CSV
+                        </button>
+                        <div id="exportStatus" class="status-message"></div>
+                    </div>
                 </div>
             </div>
 

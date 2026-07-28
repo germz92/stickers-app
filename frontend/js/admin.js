@@ -731,6 +731,7 @@ async function selectEvent(eventId) {
     loadSubmissions();
     loadPresets();
     startPolling();
+    updateExportFieldVisibility();
 }
 
 // Go back to event selection
@@ -3033,8 +3034,11 @@ async function saveGenerationSettings() {
 const originalSwitchTab = switchTab;
 switchTab = function(tab) {
     originalSwitchTab(tab);
-    if (tab === 'settings' && !captureSettings) {
-        loadCaptureSettings();
+    if (tab === 'settings') {
+        if (!captureSettings) {
+            loadCaptureSettings();
+        }
+        updateExportFieldVisibility();
     }
     if (tab === 'generationSettings') {
         loadGenerationSettings();
@@ -3043,6 +3047,114 @@ switchTab = function(tab) {
         loadBrandingSettings();
     }
 };
+
+// ===== EXPORT ATTENDEES =====
+
+function updateExportFieldVisibility() {
+    const badgeMode = currentEvent?.badgeMode === true;
+    document.querySelectorAll('#exportFieldsGrid [data-export-group="badge"]').forEach((el) => {
+        el.style.display = badgeMode ? '' : 'none';
+    });
+    document.querySelectorAll('#exportFieldsGrid [data-export-group="regular"]').forEach((el) => {
+        el.style.display = badgeMode ? 'none' : '';
+    });
+}
+
+function setExportFieldsChecked(checked) {
+    document.querySelectorAll('#exportFieldsGrid .export-field-option').forEach((label) => {
+        if (label.style.display === 'none') return;
+        const input = label.querySelector('input[name="exportField"]');
+        if (input) input.checked = checked;
+    });
+}
+
+function getSelectedExportFields() {
+    return Array.from(document.querySelectorAll('#exportFieldsGrid .export-field-option'))
+        .filter((label) => label.style.display !== 'none')
+        .map((label) => label.querySelector('input[name="exportField"]'))
+        .filter((input) => input && input.checked)
+        .map((input) => input.value);
+}
+
+async function exportAttendees() {
+    const statusDiv = document.getElementById('exportStatus');
+    const btn = document.getElementById('exportAttendeesBtn');
+
+    if (!currentEvent) {
+        if (statusDiv) {
+            statusDiv.textContent = '⚠️ No event selected';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    const fields = getSelectedExportFields();
+    if (fields.length === 0) {
+        if (statusDiv) {
+            statusDiv.textContent = '⚠️ Select at least one column to export';
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (statusDiv) {
+        statusDiv.textContent = 'Preparing CSV…';
+        statusDiv.className = 'status-message';
+        statusDiv.style.display = 'block';
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/export`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fields })
+        });
+
+        if (!response.ok) {
+            let message = 'Export failed';
+            try {
+                const err = await response.json();
+                message = err.error || message;
+            } catch (_) { /* non-JSON error body */ }
+            throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="([^"]+)"/i);
+        const filename = match?.[1] || `attendees-${currentEvent.name || 'event'}.csv`;
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        if (statusDiv) {
+            statusDiv.textContent = '✅ CSV downloaded';
+            statusDiv.className = 'status-message success';
+            statusDiv.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Export attendees error:', error);
+        if (statusDiv) {
+            statusDiv.textContent = `❌ ${error.message}`;
+            statusDiv.className = 'status-message error';
+            statusDiv.style.display = 'block';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
 
 // ===== BRANDING SETTINGS =====
 

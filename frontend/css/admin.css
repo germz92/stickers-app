@@ -1822,6 +1822,48 @@ footer {
     font-weight: 400;
 }
 
+.export-attendees-section {
+    margin-top: 28px;
+}
+
+.export-field-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.export-fields-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.export-field-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    color: #e0e0e0;
+    font-size: 0.9em;
+    user-select: none;
+}
+
+.export-field-option:hover {
+    border-color: rgba(0, 229, 255, 0.35);
+    background: rgba(0, 229, 255, 0.06);
+}
+
+.export-field-option input {
+    width: 16px;
+    height: 16px;
+    accent-color: #00e5ff;
+    flex-shrink: 0;
+}
+
 .field-mode-selector {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
