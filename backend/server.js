@@ -11,6 +11,20 @@ const sharp = require('sharp');
 const { uploadImageToS3, uploadBufferToS3, deleteImageFromS3, uploadMultipleImagesToS3 } = require('./s3');
 const crypto = require('crypto');
 const { sendCompletionNotifications, sendEmailNotification, sendSmsNotification, getGalleryUrl } = require('./notifications');
+const {
+  User,
+  CreditLedger,
+  isAdminPanelRole,
+  normalizeEmail,
+  hashToken,
+  bootstrapSuperadmin,
+  migrateOwnerIds,
+  spendCreditForGeneration,
+  adjustCredits,
+  createInviteToken,
+  sendInviteEmail,
+  publicUser
+} = require('./users');
 
 const app = express();
 
@@ -21,11 +35,20 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
-.then(() => console.log('✅ Connected to MongoDB'))
+.then(async () => {
+  console.log('✅ Connected to MongoDB');
+  try {
+    await bootstrapSuperadmin();
+    await migrateOwnerIds(Event, Submission, Preset);
+  } catch (err) {
+    console.error('❌ Bootstrap/migration error:', err.message);
+  }
+})
 .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // Event Schema
 const eventSchema = new mongoose.Schema({
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   name: { type: String, required: true },
   description: { type: String, default: '' },
   eventDate: { type: Date, required: true },
@@ -98,6 +121,7 @@ const Event = mongoose.model('Event', eventSchema);
 
 // Submission Schema
 const submissionSchema = new mongoose.Schema({
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
   name: { type: String, required: true },
   firstName: { type: String, default: '' }, // Badge Mode
@@ -137,14 +161,36 @@ const Submission = mongoose.model('Submission', submissionSchema);
 
 // Preset Schema
 const presetSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true },
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  name: { type: String, required: true },
   prompt: { type: String, required: true },
   customText: { type: String, default: '' }
 });
+presetSchema.index({ ownerId: 1, name: 1 }, { unique: true });
 
 const Preset = mongoose.model('Preset', presetSchema);
 
 // Note: CaptureSettings is now embedded in Event schema
+
+function getOwnerIdFromUser(user) {
+  return user?.userId || null;
+}
+
+async function assertOwnedEvent(eventId, userId) {
+  const event = await Event.findOne({ _id: eventId, ownerId: userId });
+  return event;
+}
+
+async function assertOwnedSubmission(submissionId, userId) {
+  return Submission.findOne({ _id: submissionId, ownerId: userId });
+}
+
+function requireSuperadmin(req, res, next) {
+  if (req.user?.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Superadmin access required' });
+  }
+  next();
+}
 
 // Authentication middleware
 const authenticateCapture = (req, res, next) => {
@@ -156,7 +202,7 @@ const authenticateCapture = (req, res, next) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role !== 'capture' && decoded.role !== 'admin') {
+    if (decoded.role !== 'capture' && !isAdminPanelRole(decoded.role)) {
       return res.status(403).json({ error: 'Invalid role' });
     }
     req.user = decoded;
@@ -178,7 +224,7 @@ const authenticateAdmin = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role !== 'admin') {
+    if (!isAdminPanelRole(decoded.role)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     req.user = decoded;
@@ -222,7 +268,7 @@ const authenticateAdminOrProcessor = (req, res, next) => {
   // Otherwise check if it's a valid admin JWT
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role !== 'admin') {
+    if (!isAdminPanelRole(decoded.role)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     req.user = decoded;
@@ -242,14 +288,37 @@ app.get('/api/health', (req, res) => {
 // Login endpoints
 app.post('/api/auth/login/capture', async (req, res) => {
   try {
-    const { password } = req.body;
-    
-    if (password === process.env.CAPTURE_PASSWORD) {
+    const { email, password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    // Per-account capture login
+    if (email) {
+      const user = await User.findOne({ email: normalizeEmail(email) });
+      if (!user || user.status !== 'active' || !user.capturePasswordHash) {
+        return res.status(401).json({ error: 'Invalid email or capture password' });
+      }
+      const ok = await bcrypt.compare(password, user.capturePasswordHash);
+      if (!ok) {
+        return res.status(401).json({ error: 'Invalid email or capture password' });
+      }
+      const token = jwt.sign(
+        { userId: String(user._id), role: 'capture' },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      return res.json({ token, role: 'capture', userId: user._id });
+    }
+
+    // Legacy global capture password (only when no users exist yet)
+    const userCount = await User.countDocuments();
+    if (userCount === 0 && process.env.CAPTURE_PASSWORD && password === process.env.CAPTURE_PASSWORD) {
       const token = jwt.sign({ role: 'capture' }, process.env.JWT_SECRET, { expiresIn: '24h' });
       return res.json({ token, role: 'capture' });
     }
-    
-    return res.status(401).json({ error: 'Invalid password' });
+
+    return res.status(401).json({ error: 'Invalid email or capture password' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -257,14 +326,272 @@ app.post('/api/auth/login/capture', async (req, res) => {
 
 app.post('/api/auth/login/admin', async (req, res) => {
   try {
-    const { password } = req.body;
-    
-    if (password === process.env.ADMIN_PASSWORD) {
+    const { email, password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    // Email + password login
+    if (email) {
+      const user = await User.findOne({ email: normalizeEmail(email) });
+      if (!user || user.status !== 'active' || !user.passwordHash) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      const ok = await bcrypt.compare(password, user.passwordHash);
+      if (!ok) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      user.lastLoginAt = new Date();
+      await user.save();
+      const token = jwt.sign(
+        { userId: String(user._id), role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      return res.json({ token, role: user.role, user: publicUser(user) });
+    }
+
+    // Legacy shared ADMIN_PASSWORD — only while no users exist
+    const userCount = await User.countDocuments();
+    if (userCount === 0 && process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD) {
       const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '24h' });
       return res.json({ token, role: 'admin' });
     }
-    
-    return res.status(401).json({ error: 'Invalid password' });
+
+    return res.status(401).json({ error: 'Invalid email or password' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/auth/me', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.user.userId) {
+      return res.json({
+        user: { role: req.user.role, credits: null, name: 'Legacy Admin', email: null }
+      });
+    }
+    const user = await User.findById(req.user.userId);
+    if (!user || user.status === 'disabled') {
+      return res.status(401).json({ error: 'Account not found or disabled' });
+    }
+    res.json({ user: publicUser(user) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/accept-invite', async (req, res) => {
+  try {
+    const { token, password, name } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const tokenHash = hashToken(token);
+    const user = await User.findOne({
+      inviteTokenHash: tokenHash,
+      status: 'invited',
+      inviteExpiresAt: { $gt: new Date() }
+    });
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired invite' });
+    }
+
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.status = 'active';
+    user.inviteTokenHash = '';
+    user.inviteExpiresAt = undefined;
+    if (name !== undefined) user.name = String(name || '').trim();
+    await user.save();
+
+    const jwtToken = jwt.sign(
+      { userId: String(user._id), role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    res.json({ token: jwtToken, role: user.role, user: publicUser(user) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== USER MANAGEMENT (superadmin) =====
+
+app.get('/api/users', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const users = await User.find().sort({ createdAt: -1 });
+    res.json(users.map(publicUser));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/invite', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const name = String(req.body.name || '').trim();
+    const credits = Math.max(0, parseInt(req.body.credits, 10) || 0);
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ error: 'A user with that email already exists' });
+    }
+
+    const { token, tokenHash } = createInviteToken();
+    const user = await User.create({
+      email,
+      name,
+      role: 'user',
+      status: 'invited',
+      credits: 0,
+      inviteTokenHash: tokenHash,
+      inviteExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    });
+
+    if (credits > 0) {
+      await adjustCredits(user._id, credits, {
+        reason: 'invite_grant',
+        note: 'Initial invite grant',
+        createdBy: req.user.userId
+      });
+      const refreshed = await User.findById(user._id);
+      user.credits = refreshed.credits;
+    }
+
+    const emailResult = await sendInviteEmail(user, token);
+    res.status(201).json({
+      user: publicUser(user),
+      email: emailResult,
+      // Include invite URL in response when email fails so ops can share manually
+      inviteUrl: emailResult.inviteUrl || null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (req.body.name !== undefined) user.name = String(req.body.name || '').trim();
+    if (req.body.status !== undefined) {
+      if (!['active', 'disabled', 'invited'].includes(req.body.status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      // Prevent locking yourself out
+      if (String(user._id) === String(req.user.userId) && req.body.status === 'disabled') {
+        return res.status(400).json({ error: 'Cannot disable your own account' });
+      }
+      user.status = req.body.status;
+    }
+    if (req.body.role !== undefined) {
+      if (!['superadmin', 'user'].includes(req.body.role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+      if (user.status !== 'active' && req.body.role === 'superadmin') {
+        return res.status(400).json({ error: 'Only active users can be made superadmin' });
+      }
+      // Prevent demoting the last remaining superadmin
+      if (user.role === 'superadmin' && req.body.role === 'user') {
+        const superCount = await User.countDocuments({ role: 'superadmin', status: { $ne: 'disabled' } });
+        if (superCount <= 1) {
+          return res.status(400).json({ error: 'Cannot demote the last superadmin' });
+        }
+      }
+      user.role = req.body.role;
+    }
+    await user.save();
+    res.json(publicUser(user));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:id/credits', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const delta = Number(req.body.delta);
+    const note = String(req.body.note || '').trim();
+    const user = await adjustCredits(req.params.id, delta, {
+      note,
+      createdBy: req.user.userId,
+      reason: 'admin_adjust'
+    });
+    res.json(publicUser(user));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:id/capture-password', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ error: 'Capture password must be at least 4 characters' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.capturePasswordHash = await bcrypt.hash(String(password), 10);
+    await user.save();
+    res.json({ message: 'Capture password updated', user: publicUser(user) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:id/resend-invite', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.status !== 'invited') {
+      return res.status(400).json({ error: 'User is not in invited status' });
+    }
+    const { token, tokenHash } = createInviteToken();
+    user.inviteTokenHash = tokenHash;
+    user.inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await user.save();
+    const emailResult = await sendInviteEmail(user, token);
+    res.json({ user: publicUser(user), email: emailResult, inviteUrl: emailResult.inviteUrl || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users/:id/ledger', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const entries = await CreditLedger.find({ userId: req.params.id })
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    res.json(entries);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Allow a user to set their own capture password
+app.post('/api/auth/capture-password', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.user.userId) {
+      return res.status(400).json({ error: 'Legacy admin cannot set capture password this way' });
+    }
+    const { password } = req.body;
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ error: 'Capture password must be at least 4 characters' });
+    }
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.capturePasswordHash = await bcrypt.hash(String(password), 10);
+    await user.save();
+    res.json({ message: 'Capture password updated', user: publicUser(user) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -281,8 +608,13 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       return res.status(400).json({ error: 'Event, photo, and prompt are required' });
     }
 
-    // Verify event exists and is not archived
-    const event = await Event.findById(eventId);
+    // Verify event exists, is not archived, and belongs to the capture account
+    let event;
+    if (req.user.userId) {
+      event = await assertOwnedEvent(eventId, req.user.userId);
+    } else {
+      event = await Event.findById(eventId);
+    }
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -316,6 +648,7 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     }
 
     const submission = new Submission({
+      ownerId: event.ownerId || req.user.userId || undefined,
       eventId,
       name: resolvedName,
       firstName: event.badgeMode ? (firstName || '').trim() : '',
@@ -332,6 +665,23 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     });
 
     await submission.save();
+
+    // Auto-approve on the server so generation does not depend on an admin
+    // browser sitting on the Pending tab.
+    if (event.autoApprove) {
+      try {
+        const billTo = submission.ownerId;
+        if (billTo) {
+          await spendCreditForGeneration(billTo, submission._id, 'auto-approve');
+        }
+        submission.status = 'approved';
+        submission.approvedAt = new Date();
+        submission.retryCount = 0;
+        await submission.save();
+      } catch (autoErr) {
+        console.warn(`Auto-approve skipped for ${submission._id}: ${autoErr.message}`);
+      }
+    }
     
     res.status(201).json({ 
       message: 'Submission saved successfully',
@@ -347,12 +697,15 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
 app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) => {
   try {
     const { eventId, name, firstName, lastName, jobTitle, company, photo, prompt, customText } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
 
     if (!eventId || !photo || !prompt) {
       return res.status(400).json({ error: 'Event, photo, and prompt are required' });
     }
 
-    const event = await Event.findById(eventId);
+    const event = ownerId
+      ? await assertOwnedEvent(eventId, ownerId)
+      : await Event.findById(eventId);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -378,7 +731,10 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
       console.warn('Thumbnail generation failed:', thumbErr.message);
     }
 
+    const submissionOwnerId = event.ownerId || ownerId;
+
     const submission = new Submission({
+      ownerId: submissionOwnerId || undefined,
       eventId,
       name: resolvedName,
       firstName: badgeMode ? (firstName || '').trim() : '',
@@ -391,13 +747,23 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
       photoThumb,
       prompt,
       customText: badgeMode ? '' : (customText || ''),
-      status: 'approved',
-      approvedAt: new Date(0),
+      status: 'pending',
       retryCount: 0,
       generatedImages: []
     });
-
     await submission.save();
+
+    try {
+      if (submissionOwnerId) {
+        await spendCreditForGeneration(submissionOwnerId, submission._id, ownerId || 'system');
+      }
+      submission.status = 'approved';
+      submission.approvedAt = new Date(0);
+      await submission.save();
+    } catch (creditErr) {
+      await Submission.findByIdAndDelete(submission._id);
+      throw creditErr;
+    }
 
     res.status(201).json({
       message: 'Submission queued for generation',
@@ -406,9 +772,45 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
     });
   } catch (error) {
     console.error('Admin upload error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
+
+// If a job is stuck in `processing` after the GPU finished (images already
+// saved) or died (no images, stale processingStartedAt), fix it here so
+// completion does not depend on opening the Processing tab / Verify Status.
+async function reconcileProcessingSubmissions(ownerId, eventId) {
+  const query = { status: 'processing' };
+  if (ownerId) query.ownerId = ownerId;
+  if (eventId) query.eventId = eventId;
+
+  const stuck = await Submission.find(query)
+    .select('generatedImages processingStartedAt retryCount')
+    .limit(50);
+  if (!stuck.length) return;
+
+  const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+  await Promise.all(stuck.map(async (sub) => {
+    if (sub.generatedImages && sub.generatedImages.length >= 4) {
+      sub.status = 'completed';
+      sub.processedAt = new Date();
+      await sub.save();
+      console.log(`🔧 Reconciled ${sub._id}: processing → completed (images already saved)`);
+      return;
+    }
+    // Do not re-queue a job that already has some images — branding/finalize may still be writing.
+    if (sub.generatedImages && sub.generatedImages.length > 0) {
+      return;
+    }
+    if (sub.processingStartedAt && sub.processingStartedAt < twoMinutesAgo) {
+      sub.status = 'approved';
+      sub.retryCount = (sub.retryCount || 0) + 1;
+      sub.processingStartedAt = undefined;
+      await sub.save();
+      console.log(`🔧 Reconciled ${sub._id}: stuck processing → approved (retry)`);
+    }
+  }));
+}
 
 // Get all submissions (admin page) - now requires eventId
 app.get('/api/submissions', authenticateAdmin, async (req, res) => {
@@ -417,8 +819,18 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
     
     // Build query
     const query = {};
+    const ownerId = getOwnerIdFromUser(req.user);
+    if (ownerId) {
+      query.ownerId = ownerId;
+    }
     if (eventId) {
       query.eventId = eventId;
+    }
+
+    try {
+      await reconcileProcessingSubmissions(ownerId, eventId);
+    } catch (reconcileErr) {
+      console.warn('Processing reconcile skipped:', reconcileErr.message);
     }
     if (status) {
       query.status = status;
@@ -519,7 +931,10 @@ app.get('/api/submissions/approved/queue', async (req, res) => {
 // Get single submission with full photo (admin page)
 app.get('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
     
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1348,10 +1763,14 @@ app.patch('/api/submissions/:id', authenticateAdminOrProcessor, async (req, res)
 // Resend completion notifications (email and/or SMS) for a submission (admin only)
 app.post('/api/submissions/:id/notify', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id).populate('eventId');
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
+    await submission.populate('eventId');
 
     // channels: array like ['email','sms']; defaults to both
     const requested = Array.isArray(req.body?.channels) && req.body.channels.length
@@ -1409,23 +1828,33 @@ app.patch('/api/submissions/:id/status', authenticateAdminOrProcessor, async (re
 // Approve submission (admin only)
 app.patch('/api/submissions/:id/approve', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findByIdAndUpdate(
-      req.params.id,
-      { 
-        status: 'approved',
-        approvedAt: new Date(),
-        retryCount: 0
-      },
-      { new: true }
-    );
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    // Already queued/processing — do not charge again
+    if (submission.status === 'approved' || submission.status === 'processing') {
+      return res.json(submission);
+    }
+
+    const billTo = submission.ownerId || ownerId;
+    if (billTo) {
+      await spendCreditForGeneration(billTo, submission._id, ownerId || 'system');
+    }
+
+    submission.status = 'approved';
+    submission.approvedAt = new Date();
+    submission.retryCount = 0;
+    await submission.save();
+
     res.json(submission);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -1462,7 +1891,10 @@ app.post('/api/submissions/:id/logs', authenticateProcessor, async (req, res) =>
 app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (req, res) => {
   try {
     const { prompt, customText, photo, firstName, lastName, jobTitle, company } = req.body;
-    const submission = await Submission.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
 
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1507,6 +1939,12 @@ app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (
       }
     }
 
+    const wasAlreadyQueued = submission.status === 'approved' || submission.status === 'processing';
+    const billTo = submission.ownerId || ownerId;
+    if (!wasAlreadyQueued && billTo) {
+      await spendCreditForGeneration(billTo, submission._id, ownerId || 'system');
+    }
+
     submission.generatedImages = [];
     submission.processedAt = null;
     submission.processingStartedAt = null;
@@ -1521,23 +1959,29 @@ app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (
     res.json(submission);
   } catch (error) {
     console.error('Queue for generation error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
 // Regenerate submission (admin only)
 app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) => {
   try {
-    const originalSubmission = await Submission.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const originalSubmission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
     
     if (!originalSubmission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    const billTo = originalSubmission.ownerId || ownerId;
+
     // Create a duplicate submission for regeneration.
     // Carry over badge fields + contact info so badge-mode downloads and
     // notifications keep working on the regenerated copy.
     const newSubmission = new Submission({
+      ownerId: billTo || undefined,
       eventId: originalSubmission.eventId,
       name: originalSubmission.name,
       firstName: originalSubmission.firstName || '',
@@ -1550,8 +1994,7 @@ app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) 
       photoThumb: originalSubmission.photoThumb || '',
       prompt: originalSubmission.prompt,
       customText: originalSubmission.customText,
-      status: 'approved',
-      approvedAt: new Date(0),
+      status: 'pending',
       retryCount: 0,
       generatedImages: [],
       processingLogs: [{
@@ -1563,23 +2006,38 @@ app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) 
 
     await newSubmission.save();
 
+    try {
+      if (billTo) {
+        await spendCreditForGeneration(billTo, newSubmission._id, ownerId || 'system');
+      }
+      newSubmission.status = 'approved';
+      newSubmission.approvedAt = new Date(0);
+      await newSubmission.save();
+    } catch (creditErr) {
+      await Submission.findByIdAndDelete(newSubmission._id);
+      throw creditErr;
+    }
+
     res.json(newSubmission);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
 // Add submission to queue (for completed/rejected/failed entries)
 app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
     
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
     // For completed/rejected/failed: set to pending (requires manual approval)
-    // For processing: set to approved (retry immediately)
+    // For processing: set to approved (retry immediately) — charges a credit
     if (submission.status === 'completed' || submission.status === 'rejected' || submission.status === 'failed') {
       submission.status = 'pending';
       submission.approvedAt = null;
@@ -1588,6 +2046,10 @@ app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res
       submission.generatedImages = [];
       submission.failureReason = undefined;
     } else {
+      const billTo = submission.ownerId || ownerId;
+      if (submission.status !== 'approved' && billTo) {
+        await spendCreditForGeneration(billTo, submission._id, ownerId || 'system');
+      }
       submission.status = 'approved';
       submission.approvedAt = new Date();
     }
@@ -1598,7 +2060,7 @@ app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res
 
     res.json(submission);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -1683,7 +2145,10 @@ app.patch('/api/submissions/:id/fail', authenticateProcessor, async (req, res) =
 // Delete submission (admin page)
 app.delete('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertOwnedSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
     
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1829,93 +2294,36 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
     });
     
     const brandingEnabled = event?.brandingSettings?.enabled && event?.brandingSettings?.logoUrl;
-    
-    let logoBuffer = null;
-    if (brandingEnabled) {
-      console.log('🎨 Branding enabled for this event, downloading logo...');
-      try {
-        // Download logo from S3
-        const logoResponse = await axios.get(event.brandingSettings.logoUrl, { responseType: 'arraybuffer' });
-        logoBuffer = Buffer.from(logoResponse.data);
-        console.log('✅ Logo downloaded successfully');
-      } catch (logoError) {
-        console.error('❌ Failed to download logo:', logoError.message);
-        // Continue without logo if download fails
-      }
-    } else {
-      console.log('ℹ️ Branding not enabled or logo URL missing');
-    }
 
-    // Resolve each generated image to a stored S3 URL.
-    // The processor now uploads results to S3 directly and sends { url, filename },
-    // so we avoid a second base64 hop + re-upload. Legacy callers may still send
-    // base64 { data, filename }. We only download + re-upload when we actually
-    // need to composite a branding logo onto the image.
-    console.log(`Finalizing ${generatedImages.length} generated images...`);
-
-    async function resolveGeneratedImage(img) {
+    // Fast path: persist processor S3 URLs (or upload legacy base64) and mark
+    // completed immediately. Branding used to run BEFORE this save, which left
+    // the job in `processing` for a long time. Admin Verify/reconcile then
+    // treated it as stuck and flipped it back to `approved` — same job ran twice.
+    const immediateImages = [];
+    for (const img of generatedImages) {
       const filename = img.filename;
       const createdAt = img.createdAt || new Date();
-
-      // Fast path (no branding): keep the processor's S3 URL untouched, or upload
-      // base64 directly if a legacy payload was sent.
-      if (!(brandingEnabled && logoBuffer)) {
-        if (img.url) {
-          return { url: img.url, filename, createdAt };
-        }
-        return { url: await uploadImageToS3(img.data, 'results'), filename, createdAt };
-      }
-
-      // Branding enabled: get the image as base64, composite the logo, re-upload.
-      let base64 = img.data;
-      if (!base64 && img.url) {
-        const resp = await axios.get(img.url, { responseType: 'arraybuffer' });
-        base64 = `data:image/png;base64,${Buffer.from(resp.data).toString('base64')}`;
-      }
-      let imageData = base64;
-      try {
-        const originalBuffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-        const metadata = await sharp(originalBuffer).metadata();
-        console.log(`🎨 Applying logo to ${filename}...`);
-        imageData = await applyLogoOverlay(base64, logoBuffer, event.brandingSettings, metadata);
-        console.log(`✅ Logo applied to ${filename}`);
-      } catch (overlayError) {
-        console.error(`❌ Failed to apply logo to ${filename}:`, overlayError.message);
-        // Fall back to the un-branded image if overlay fails
-      }
-      return { url: await uploadImageToS3(imageData, 'results'), filename, createdAt };
-    }
-
-    // Run with bounded concurrency; preserve original order and drop failures.
-    // Logo compositing is CPU/memory heavy, so cap it lower than pure pass-through.
-    const uploadConcurrency = brandingEnabled ? 2 : generatedImages.length;
-    const resolved = new Array(generatedImages.length).fill(null);
-    let nextIndex = 0;
-    async function uploadWorker() {
-      while (nextIndex < generatedImages.length) {
-        const idx = nextIndex++;
-        try {
-          resolved[idx] = await resolveGeneratedImage(generatedImages[idx]);
-        } catch (uploadError) {
-          console.error(`Failed to finalize ${generatedImages[idx]?.filename}:`, uploadError.message);
-        }
+      if (img.url) {
+        immediateImages.push({ url: img.url, filename, createdAt });
+      } else if (img.data) {
+        immediateImages.push({
+          url: await uploadImageToS3(img.data, 'results'),
+          filename,
+          createdAt
+        });
       }
     }
-    await Promise.all(
-      Array.from({ length: Math.min(uploadConcurrency, generatedImages.length) }, uploadWorker)
-    );
-    const uploadedImages = resolved.filter(Boolean);
 
-    // Update submission with uploaded images
-    submission.generatedImages = uploadedImages;
+    if (immediateImages.length === 0) {
+      return res.status(400).json({ error: 'No sticker images were saved' });
+    }
+
+    submission.generatedImages = immediateImages;
     submission.status = 'completed';
     submission.processedAt = new Date();
     await submission.save();
-
-    // Populate eventId again for response
     await submission.populate('eventId');
 
-    // Send notifications (email + SMS) if contact info provided
     if (submission.email || submission.phone) {
       console.log('📨 Sending completion notifications...');
       try {
@@ -1923,23 +2331,67 @@ app.patch('/api/submissions/:id/images', async (req, res) => {
         console.log('📨 Notification results:', notificationResults);
       } catch (notifyError) {
         console.error('📨 Notification error (non-fatal):', notifyError.message);
-        // Don't fail the request if notifications fail
       }
     }
 
     res.json(submission);
+
+    if (brandingEnabled) {
+      applyBrandingToCompletedSubmission(submission._id, event).catch((err) => {
+        console.error(`Background branding failed for ${submission._id}:`, err.message);
+      });
+    }
+    return;
   } catch (error) {
     console.error('Error updating submission with images:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
+async function applyBrandingToCompletedSubmission(submissionId, event) {
+  if (!event?.brandingSettings?.logoUrl) return;
+
+  console.log('🎨 Branding enabled, applying logo in background...');
+  const logoResponse = await axios.get(event.brandingSettings.logoUrl, { responseType: 'arraybuffer' });
+  const logoBuffer = Buffer.from(logoResponse.data);
+  console.log('✅ Logo downloaded successfully');
+
+  const submission = await Submission.findById(submissionId);
+  if (!submission || !submission.generatedImages?.length) return;
+
+  console.log(`Finalizing ${submission.generatedImages.length} generated images...`);
+  const branded = [];
+  for (const img of submission.generatedImages) {
+    try {
+      const resp = await axios.get(img.url, { responseType: 'arraybuffer' });
+      const base64 = `data:image/png;base64,${Buffer.from(resp.data).toString('base64')}`;
+      const originalBuffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+      const metadata = await sharp(originalBuffer).metadata();
+      console.log(`🎨 Applying logo to ${img.filename}...`);
+      const imageData = await applyLogoOverlay(base64, logoBuffer, event.brandingSettings, metadata);
+      const url = await uploadImageToS3(imageData, 'results');
+      console.log(`✅ Logo applied to ${img.filename}`);
+      branded.push({ url, filename: img.filename, createdAt: img.createdAt || new Date() });
+    } catch (overlayError) {
+      console.error(`❌ Failed to apply logo to ${img.filename}:`, overlayError.message);
+      branded.push(img);
+    }
+  }
+
+  if (branded.length) {
+    await Submission.findByIdAndUpdate(submissionId, { generatedImages: branded });
+    console.log(`✅ Background branding saved for ${submissionId}`);
+  }
+}
+
 // Preset endpoints
 
 // Get all presets (admin page)
 app.get('/api/presets', authenticateAdmin, async (req, res) => {
   try {
-    const presets = await Preset.find().sort({ name: 1 });
+    const ownerId = getOwnerIdFromUser(req.user);
+    const query = ownerId ? { ownerId } : {};
+    const presets = await Preset.find(query).sort({ name: 1 });
     res.json(presets);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1950,12 +2402,18 @@ app.get('/api/presets', authenticateAdmin, async (req, res) => {
 app.post('/api/presets', authenticateAdmin, async (req, res) => {
   try {
     const { name, prompt, customText } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
     
     if (!name || !prompt) {
       return res.status(400).json({ error: 'Name and prompt are required' });
     }
 
-    const preset = new Preset({ name, prompt, customText: customText || '' });
+    const preset = new Preset({
+      ownerId: ownerId || undefined,
+      name,
+      prompt,
+      customText: customText || ''
+    });
     await preset.save();
     
     res.status(201).json(preset);
@@ -1970,7 +2428,9 @@ app.post('/api/presets', authenticateAdmin, async (req, res) => {
 // Delete preset (admin page)
 app.delete('/api/presets/:id', authenticateAdmin, async (req, res) => {
   try {
-    const preset = await Preset.findByIdAndDelete(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const query = ownerId ? { _id: req.params.id, ownerId } : { _id: req.params.id };
+    const preset = await Preset.findOneAndDelete(query);
     
     if (!preset) {
       return res.status(404).json({ error: 'Preset not found' });
@@ -1989,23 +2449,33 @@ app.get('/api/events', async (req, res) => {
   try {
     const { includeArchived } = req.query;
     
-    // Check if admin token provided
     let isAdmin = false;
+    let ownerId = null;
     const authHeader = req.headers.authorization;
     if (authHeader) {
       const token = authHeader.split(' ')[1];
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        isAdmin = decoded.role === 'admin';
+        isAdmin = isAdminPanelRole(decoded.role);
+        if (decoded.userId) ownerId = decoded.userId;
       } catch (e) {
-        // Not admin, continue as public
+        // Not authenticated
       }
     }
     
     let query = {};
+
+    // Multi-tenant: when logged in, only that account's events
+    if (ownerId) {
+      query.ownerId = ownerId;
+    } else if (isAdmin) {
+      // Legacy admin without userId — no owner filter
+    } else {
+      // Unauthenticated: do not leak tenant events
+      return res.json([]);
+    }
     
     if (!isAdmin || includeArchived !== 'true') {
-      // For capture page or when not requesting archived: only show non-archived events
       query.isArchived = false;
     }
     
@@ -2078,7 +2548,10 @@ function formatExportDate(date) {
 
 app.post('/api/events/:id/export', authenticateAdmin, async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -2141,12 +2614,17 @@ app.post('/api/events/:id/export', authenticateAdmin, async (req, res) => {
 app.post('/api/events', authenticateAdmin, async (req, res) => {
   try {
     const { name, description, eventDate, badgeMode } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
     
     if (!name || !eventDate) {
       return res.status(400).json({ error: 'Name and event date are required' });
     }
+    if (!ownerId) {
+      return res.status(400).json({ error: 'Account required to create events. Log in with email/password.' });
+    }
     
     const event = new Event({
+      ownerId,
       name,
       description: description || '',
       eventDate: new Date(eventDate),
@@ -2169,8 +2647,11 @@ app.post('/api/events', authenticateAdmin, async (req, res) => {
 app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
   try {
     const { name, description, eventDate, badgeMode, captureSettings, generationSettings } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
     
-    const event = await Event.findById(req.params.id);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -2218,6 +2699,11 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
 app.patch('/api/events/:id/archive', authenticateAdmin, async (req, res) => {
   try {
     const { isArchived } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
+    if (ownerId) {
+      const owned = await assertOwnedEvent(req.params.id, ownerId);
+      if (!owned) return res.status(404).json({ error: 'Event not found' });
+    }
     
     const event = await Event.findByIdAndUpdate(
       req.params.id,
@@ -2238,6 +2724,12 @@ app.patch('/api/events/:id/archive', authenticateAdmin, async (req, res) => {
 // Delete event (admin only - only if no submissions)
 app.delete('/api/events/:id', authenticateAdmin, async (req, res) => {
   try {
+    const ownerId = getOwnerIdFromUser(req.user);
+    if (ownerId) {
+      const owned = await assertOwnedEvent(req.params.id, ownerId);
+      if (!owned) return res.status(404).json({ error: 'Event not found' });
+    }
+
     const submissionCount = await Submission.countDocuments({ eventId: req.params.id });
     
     if (submissionCount > 0) {
@@ -2266,8 +2758,11 @@ app.post('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) =>
     if (!logo) {
       return res.status(400).json({ error: 'Logo image is required' });
     }
-    
-    const event = await Event.findById(req.params.id);
+
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -2309,8 +2804,11 @@ app.post('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) =>
 app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
   try {
     const { enabled, position, size, opacity } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
     
-    const event = await Event.findById(req.params.id);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -2362,8 +2860,11 @@ app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
 app.put('/api/events/:id/auto-approve', authenticateAdmin, async (req, res) => {
   try {
     const { autoApprove } = req.body;
+    const ownerId = getOwnerIdFromUser(req.user);
     
-    const event = await Event.findById(req.params.id);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -2384,7 +2885,10 @@ app.put('/api/events/:id/auto-approve', authenticateAdmin, async (req, res) => {
 // Delete logo from event branding (admin only)
 app.delete('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id);
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
@@ -2474,13 +2978,41 @@ app.get('/api/gallery/:id', async (req, res) => {
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Root route
-// Processor heartbeat tracking
+// Processor heartbeat tracking (+ optional RunPod worker snapshot from processor)
 let lastProcessorHeartbeat = null;
+let lastRunpodStatus = null;
+
+function buildGpuStatus(runpod) {
+  if (!runpod || runpod.error || !runpod.workers) {
+    return {
+      warm: false,
+      starting: false,
+      cold: false,
+      unknown: true,
+      ready: 0,
+      running: 0,
+      initializing: 0
+    };
+  }
+  const ready = Number(runpod.workers.ready) || 0;
+  const running = Number(runpod.workers.running) || 0;
+  const initializing = Number(runpod.workers.initializing) || 0;
+  const warm = ready > 0 || running > 0;
+  const starting = !warm && initializing > 0;
+  const cold = !warm && !starting;
+  return { warm, starting, cold, unknown: false, ready, running, initializing };
+}
 
 // Processor heartbeat endpoint
 app.post('/api/processor/heartbeat', authenticateProcessor, (req, res) => {
   lastProcessorHeartbeat = new Date();
-  res.json({ success: true, timestamp: lastProcessorHeartbeat });
+  if (req.body && req.body.runpod && typeof req.body.runpod === 'object') {
+    lastRunpodStatus = {
+      ...req.body.runpod,
+      receivedAt: lastProcessorHeartbeat
+    };
+  }
+  res.json({ success: true, timestamp: lastProcessorHeartbeat, gpu: buildGpuStatus(lastRunpodStatus) });
 });
 
 // Check processor status
@@ -2491,7 +3023,9 @@ app.get('/api/processor/status', authenticateAdmin, (req, res) => {
   res.json({
     isHealthy,
     lastHeartbeat: lastProcessorHeartbeat,
-    timeSinceLastHeartbeat: lastProcessorHeartbeat ? now - lastProcessorHeartbeat : null
+    timeSinceLastHeartbeat: lastProcessorHeartbeat ? now - lastProcessorHeartbeat : null,
+    gpu: buildGpuStatus(lastRunpodStatus),
+    runpod: lastRunpodStatus
   });
 });
 

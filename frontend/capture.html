@@ -18,9 +18,10 @@
     <!-- Login Modal -->
     <div id="loginModal" class="modal">
         <div class="modal-content">
-            <h2>Enter Access Code</h2>
-            <p>Please enter the password to access the capture page</p>
-            <input type="password" id="loginPassword" placeholder="Enter password">
+            <h2>Capture Access</h2>
+            <p>Enter the account email and capture password</p>
+            <input type="email" id="loginEmail" placeholder="Account email" autocomplete="username">
+            <input type="password" id="loginPassword" placeholder="Capture password" autocomplete="current-password">
             <button onclick="login()" class="btn-primary">Login</button>
             <div id="loginError" class="error-message"></div>
         </div>

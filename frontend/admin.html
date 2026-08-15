@@ -19,8 +19,9 @@
     <div id="loginModal" class="modal">
         <div class="modal-content">
             <h2>Admin Login</h2>
-            <p>Please enter the admin password</p>
-            <input type="password" id="loginPassword" placeholder="Enter admin password">
+            <p>Sign in with your account email and password</p>
+            <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+            <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
             <button onclick="login()" class="btn-primary">Login</button>
             <div id="loginError" class="error-message"></div>
         </div>
@@ -34,6 +35,10 @@
                     <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
                     <h1>Stickers Generator - Admin Panel</h1>
                     <div class="header-controls">
+                        <span id="creditsChip" class="credits-chip" title="Generation credits remaining">Credits: —</span>
+                        <button id="usersNavBtn" onclick="showUsersScreen()" class="btn-secondary btn-sm" style="display: none;">
+                            Users
+                        </button>
                         <button onclick="logout()" class="btn-danger btn-sm">
                             Logout
                         </button>
@@ -66,6 +71,55 @@
             </footer>
         </div>
 
+        <!-- Users Management Screen (superadmin) -->
+        <div id="usersScreen" style="display: none;">
+            <header>
+                <div class="container">
+                    <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+                    <div class="header-title">
+                        <button onclick="backToEventsFromUsers()" class="btn-back">← Events</button>
+                        <h1>User Management</h1>
+                    </div>
+                    <div class="header-controls">
+                        <span id="creditsChipUsers" class="credits-chip">Credits: —</span>
+                        <button onclick="logout()" class="btn-danger btn-sm">Logout</button>
+                    </div>
+                </div>
+            </header>
+            <main class="container">
+                <div class="settings-section">
+                    <h3>Invite User</h3>
+                    <p class="hint">Invite-only accounts. User sets their password via email link.</p>
+                    <div class="invite-form-grid">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="inviteEmail" placeholder="user@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Name (optional)</label>
+                            <input type="text" id="inviteName" placeholder="Display name">
+                        </div>
+                        <div class="form-group">
+                            <label>Starting credits</label>
+                            <input type="number" id="inviteCredits" min="0" value="100">
+                        </div>
+                    </div>
+                    <button type="button" class="btn-primary" onclick="inviteUser()">Send Invite</button>
+                    <div id="inviteStatus" class="status-message"></div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Accounts</h3>
+                    <div id="usersList" class="users-list">
+                        <p class="loading">Loading users...</p>
+                    </div>
+                </div>
+            </main>
+            <footer>
+                <p>Powered by Lumetry Media</p>
+            </footer>
+        </div>
+
         <!-- Event Queue Screen (shown after selecting an event) -->
         <div id="eventQueueScreen" style="display: none;">
             <header>
@@ -76,6 +130,7 @@
                         <h1 id="currentEventName">Event Name</h1>
                     </div>
                     <div class="header-controls">
+                        <span id="creditsChipQueue" class="credits-chip" title="Generation credits remaining">Credits: —</span>
                         <button onclick="logout()" class="btn-danger btn-sm">
                             Logout
                         </button>
@@ -284,17 +339,20 @@
                         <!-- Generation Progress -->
                         <div id="generationProgress" class="generation-progress" style="display: none;">
                             <div class="progress-header">
-                                <h3>Generating...</h3>
-                                <p id="progressStatus">Waiting for processor...</p>
+                                <div class="progress-title-row">
+                                    <h3>Creating stickers</h3>
+                                    <span id="gpuStatusChip" class="gpu-status-chip gpu-unknown" title="GPU readiness from RunPod">GPU…</span>
+                                </div>
+                                <p id="progressStatus">Getting things ready…</p>
                             </div>
                             <div class="progress-bar-container">
                                 <div class="progress-bar" id="progressBar"></div>
                             </div>
                             <div class="progress-steps">
-                                <div class="step" id="step1">Uploading</div>
-                                <div class="step" id="step2">Processing</div>
-                                <div class="step" id="step3">Downloading</div>
-                                <div class="step" id="step4">Complete</div>
+                                <div class="step" id="step1">Queued</div>
+                                <div class="step" id="step2">Creating</div>
+                                <div class="step" id="step3">Finishing</div>
+                                <div class="step" id="step4">Ready</div>
                             </div>
                         </div>
 

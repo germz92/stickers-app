@@ -52,11 +52,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Login function
 async function login() {
+    const email = document.getElementById('loginEmail')?.value?.trim();
     const password = document.getElementById('loginPassword').value;
     const errorDiv = document.getElementById('loginError');
     
-    if (!password) {
-        errorDiv.textContent = 'Please enter a password';
+    if (!email || !password) {
+        errorDiv.textContent = 'Please enter account email and capture password';
         errorDiv.classList.add('show');
         return;
     }
@@ -67,7 +68,7 @@ async function login() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ password })
+            body: JSON.stringify({ email, password })
         });
 
         const data = await response.json();
@@ -79,6 +80,7 @@ async function login() {
             // Set token expiry time (24 hours from now)
             tokenExpiryTime = Date.now() + (24 * 60 * 60 * 1000);
             localStorage.setItem('captureTokenExpiry', tokenExpiryTime.toString());
+            localStorage.setItem('captureAccountEmail', email);
             
             document.getElementById('loginModal').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
@@ -89,7 +91,7 @@ async function login() {
             // Load events for selection
             loadEvents();
         } else {
-            errorDiv.textContent = data.error || 'Invalid password';
+            errorDiv.textContent = data.error || 'Invalid email or capture password';
             errorDiv.classList.add('show');
         }
     } catch (error) {
@@ -141,11 +143,14 @@ async function verifyToken() {
 function showLoginModal() {
     document.getElementById('loginModal').style.display = 'flex';
     document.getElementById('mainContent').style.display = 'none';
-    // Clear password field
+    const emailField = document.getElementById('loginEmail');
+    if (emailField) {
+        emailField.value = localStorage.getItem('captureAccountEmail') || '';
+    }
     const passwordField = document.getElementById('loginPassword');
     if (passwordField) {
         passwordField.value = '';
-        passwordField.focus();
+        (emailField?.value ? passwordField : emailField || passwordField).focus();
     }
     // Clear any error messages
     const errorDiv = document.getElementById('loginError');

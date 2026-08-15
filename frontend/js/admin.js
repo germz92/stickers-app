@@ -140,13 +140,48 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+let currentUser = null;
+
+function updateCreditsChip(credits) {
+    const label = credits === null || credits === undefined ? 'Credits: —' : `Credits: ${credits}`;
+    ['creditsChip', 'creditsChipQueue', 'creditsChipUsers'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = label;
+    });
+}
+
+function applyCurrentUserUI() {
+    const usersBtn = document.getElementById('usersNavBtn');
+    if (usersBtn) {
+        usersBtn.style.display = currentUser?.role === 'superadmin' ? '' : 'none';
+    }
+    updateCreditsChip(currentUser?.credits);
+}
+
+async function loadCurrentUser() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        currentUser = data.user || null;
+        applyCurrentUserUI();
+        return currentUser;
+    } catch (error) {
+        console.error('Load current user error:', error);
+        return null;
+    }
+}
+
 // Login
 async function login() {
+    const email = document.getElementById('loginEmail')?.value?.trim();
     const password = document.getElementById('loginPassword').value;
     const errorDiv = document.getElementById('loginError');
     
-    if (!password) {
-        errorDiv.textContent = 'Please enter a password';
+    if (!email || !password) {
+        errorDiv.textContent = 'Please enter email and password';
         errorDiv.classList.add('show');
         return;
     }
@@ -157,7 +192,7 @@ async function login() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ password })
+            body: JSON.stringify({ email, password })
         });
 
         const data = await response.json();
@@ -175,11 +210,15 @@ async function login() {
             
             // Start token expiry checker
             startTokenExpiryChecker();
+
+            currentUser = data.user || null;
+            applyCurrentUserUI();
+            if (!currentUser) await loadCurrentUser();
             
             // Initialize - show event selection first
             loadEvents();
         } else {
-            errorDiv.textContent = data.error || 'Invalid password';
+            errorDiv.textContent = data.error || 'Invalid email or password';
             errorDiv.classList.add('show');
         }
     } catch (error) {
@@ -351,22 +390,23 @@ function showNotification(message, type = 'info') {
 // Verify token
 async function verifyToken() {
     try {
-        const response = await fetch(`${API_BASE_URL}/events`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (response.ok) {
-            document.getElementById('loginModal').style.display = 'none';
-            document.getElementById('mainContent').style.display = 'block';
-            
-            // Initialize - show event selection first
-            loadEvents();
-        } else {
+        if (!response.ok) {
             localStorage.removeItem('adminToken');
             token = null;
+            return;
         }
+
+        const data = await response.json();
+        currentUser = data.user || null;
+        applyCurrentUserUI();
+
+        document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('mainContent').style.display = 'block';
+        loadEvents();
     } catch (error) {
         console.error('Token verification error:', error);
     }
@@ -378,6 +418,255 @@ document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
         login();
     }
 });
+document.getElementById('loginEmail')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        document.getElementById('loginPassword')?.focus();
+    }
+});
+
+// ===== USER MANAGEMENT (superadmin) =====
+
+function showUsersScreen() {
+    document.getElementById('eventSelectionScreen').style.display = 'none';
+    document.getElementById('eventQueueScreen').style.display = 'none';
+    document.getElementById('usersScreen').style.display = 'block';
+    loadUsers();
+}
+
+function backToEventsFromUsers() {
+    document.getElementById('usersScreen').style.display = 'none';
+    document.getElementById('eventSelectionScreen').style.display = 'block';
+    loadEvents();
+}
+
+async function loadUsers() {
+    const list = document.getElementById('usersList');
+    if (!list) return;
+    list.innerHTML = '<p class="loading">Loading users...</p>';
+    try {
+        const response = await fetch(`${API_BASE_URL}/users`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error('Failed to load users');
+        const users = await response.json();
+        if (!users.length) {
+            list.innerHTML = '<p class="hint">No users yet. Send an invite above.</p>';
+            return;
+        }
+        list.innerHTML = users.map((u) => `
+            <div class="user-card" data-user-id="${u._id}">
+                <div class="user-card-main">
+                    <div>
+                        <strong>${escapeHtml(u.name || u.email)}</strong>
+                        <div class="user-meta">${escapeHtml(u.email)} · ${escapeHtml(u.role)} · ${escapeHtml(u.status)}</div>
+                        <div class="user-meta">Credits: <strong>${u.credits ?? 0}</strong>
+                            ${u.hasCapturePassword ? ' · Capture password set' : ' · No capture password'}
+                        </div>
+                    </div>
+                    <div class="user-card-actions">
+                        <button class="btn-sm btn-secondary" onclick="adjustUserCredits('${u._id}')">Adjust credits</button>
+                        <button class="btn-sm btn-secondary" onclick="setUserCapturePassword('${u._id}')">Set capture password</button>
+                        ${u.status === 'invited' ? `<button class="btn-sm btn-primary" onclick="resendInvite('${u._id}')">Resend invite</button>` : ''}
+                        ${u.status === 'active' && u.role !== 'superadmin' ? `<button class="btn-sm btn-warning" onclick="setUserRole('${u._id}', 'superadmin')">Make superadmin</button>` : ''}
+                        ${u.role === 'superadmin' ? `<button class="btn-sm btn-secondary" onclick="setUserRole('${u._id}', 'user')">Demote to user</button>` : ''}
+                        ${u.status === 'active' ? `<button class="btn-sm btn-danger" onclick="setUserStatus('${u._id}', 'disabled')">Disable</button>` : ''}
+                        ${u.status === 'disabled' ? `<button class="btn-sm btn-success" onclick="setUserStatus('${u._id}', 'active')">Enable</button>` : ''}
+                        <button class="btn-sm btn-secondary" onclick="viewUserLedger('${u._id}')">Ledger</button>
+                    </div>
+                </div>
+                <div class="user-ledger" id="ledger-${u._id}" style="display:none;"></div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error(error);
+        list.innerHTML = `<p class="error">Failed to load users: ${escapeHtml(error.message)}</p>`;
+    }
+}
+
+async function inviteUser() {
+    const status = document.getElementById('inviteStatus');
+    const email = document.getElementById('inviteEmail')?.value?.trim();
+    const name = document.getElementById('inviteName')?.value?.trim();
+    const credits = parseInt(document.getElementById('inviteCredits')?.value, 10) || 0;
+    if (!email) {
+        status.textContent = 'Email is required';
+        status.className = 'status-message error';
+        status.style.display = 'block';
+        return;
+    }
+    status.textContent = 'Sending invite…';
+    status.className = 'status-message';
+    status.style.display = 'block';
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/invite`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, name, credits })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Invite failed');
+        let msg = `Invited ${data.user.email}`;
+        if (data.email?.sent) msg += ' — email sent';
+        else if (data.inviteUrl) msg += ` — share this link: ${data.inviteUrl}`;
+        status.textContent = msg;
+        status.className = 'status-message success';
+        document.getElementById('inviteEmail').value = '';
+        document.getElementById('inviteName').value = '';
+        loadUsers();
+    } catch (error) {
+        status.textContent = error.message;
+        status.className = 'status-message error';
+    }
+}
+
+async function adjustUserCredits(userId) {
+    const raw = prompt('Credit adjustment (positive to add, negative to remove):', '100');
+    if (raw === null) return;
+    const delta = Number(raw);
+    if (!Number.isFinite(delta) || delta === 0) {
+        showStatus('Enter a non-zero number', 'error');
+        return;
+    }
+    const note = prompt('Note (optional):', '') || '';
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/credits`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ delta, note })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Adjust failed');
+        showStatus(`Credits updated: ${data.credits}`, 'success');
+        await loadCurrentUser();
+        loadUsers();
+    } catch (error) {
+        showStatus(error.message, 'error');
+    }
+}
+
+async function setUserCapturePassword(userId) {
+    const password = prompt('New capture password for this account (min 4 chars):');
+    if (password === null) return;
+    if (password.length < 4) {
+        showStatus('Capture password must be at least 4 characters', 'error');
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/capture-password`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed');
+        showStatus('Capture password updated', 'success');
+        loadUsers();
+    } catch (error) {
+        showStatus(error.message, 'error');
+    }
+}
+
+async function setUserStatus(userId, status) {
+    if (!confirm(`Set user status to "${status}"?`)) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed');
+        loadUsers();
+    } catch (error) {
+        showStatus(error.message, 'error');
+    }
+}
+
+async function setUserRole(userId, role) {
+    const label = role === 'superadmin' ? 'superadmin' : 'regular user';
+    if (!confirm(`Change this account to ${label}? They must log out and back in for the change to take effect.`)) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ role })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed');
+        showStatus(`Role updated to ${label}`, 'success');
+        // If you demoted yourself, refresh local UI role
+        if (String(userId) === String(currentUser?._id)) {
+            await loadCurrentUser();
+        }
+        loadUsers();
+    } catch (error) {
+        showStatus(error.message, 'error');
+    }
+}
+
+async function resendInvite(userId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/resend-invite`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed');
+        let msg = 'Invite resent';
+        if (data.inviteUrl && !data.email?.sent) msg += `: ${data.inviteUrl}`;
+        showStatus(msg, 'success');
+    } catch (error) {
+        showStatus(error.message, 'error');
+    }
+}
+
+async function viewUserLedger(userId) {
+    const el = document.getElementById(`ledger-${userId}`);
+    if (!el) return;
+    if (el.style.display === 'block') {
+        el.style.display = 'none';
+        return;
+    }
+    el.style.display = 'block';
+    el.innerHTML = '<p class="loading">Loading ledger…</p>';
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/ledger?limit=30`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const entries = await response.json();
+        if (!response.ok) throw new Error(entries.error || 'Failed');
+        if (!entries.length) {
+            el.innerHTML = '<p class="hint">No ledger entries</p>';
+            return;
+        }
+        el.innerHTML = `<table class="ledger-table"><thead><tr><th>When</th><th>Delta</th><th>Balance</th><th>Reason</th><th>Note</th></tr></thead><tbody>
+            ${entries.map((e) => `<tr>
+                <td>${new Date(e.createdAt).toLocaleString()}</td>
+                <td>${e.delta > 0 ? '+' : ''}${e.delta}</td>
+                <td>${e.balanceAfter}</td>
+                <td>${escapeHtml(e.reason)}</td>
+                <td>${escapeHtml(e.note || '')}</td>
+            </tr>`).join('')}
+        </tbody></table>`;
+    } catch (error) {
+        el.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+    }
+}
 
 // Tab Switching
 function switchTab(tabName) {
@@ -458,9 +747,6 @@ async function loadSubmissions(silent = false, append = false, skipAutoApprove =
         paginationState.total = pagination.total;
         paginationState.hasMore = pagination.hasMore;
         
-        // Track previous submission IDs for detecting new submissions
-        const previousSubmissionIds = new Set(allSubmissions.map(s => s._id));
-        
         if (append) {
             const existingIds = new Set(allSubmissions.map(s => s._id));
             const uniqueNew = newSubmissions.filter(s => !existingIds.has(s._id));
@@ -471,39 +757,12 @@ async function loadSubmissions(silent = false, append = false, skipAutoApprove =
         
         paginationState.loaded = allSubmissions.length;
         
-        // Auto-approve new pending submissions if auto-approve is enabled
+        // Drain pending even when the current tab is Processing/Completed.
+        // Previously auto-approve only saw rows in the active status filter, so
+        // jobs looked like they only started after opening Processing.
         if (currentEvent.autoApprove && !append && !skipAutoApprove) {
-            const newPendingSubmissions = allSubmissions.filter(s => {
-                const isPending = s.status === 'pending';
-                // Convert both IDs to strings for comparison
-                const submissionEventId = String(s.eventId?._id || s.eventId);
-                const currentEventId = String(currentEvent._id);
-                const isCurrentEvent = submissionEventId === currentEventId;
-                const isNew = !previousSubmissionIds.has(s._id);
-                return isPending && isCurrentEvent && isNew;
-            });
-            
-            if (newPendingSubmissions.length > 0) {
-                console.log(`Auto-approving ${newPendingSubmissions.length} new pending submissions...`);
-                for (const submission of newPendingSubmissions) {
-                    try {
-                        // Call API directly to avoid infinite loop
-                        const response = await fetch(`${API_BASE_URL}/submissions/${submission._id}/approve`, {
-                            method: 'PATCH',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${token}`
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            console.log(`✅ Auto-approved submission ${submission._id}`);
-                        }
-                    } catch (error) {
-                        console.error(`Failed to auto-approve submission ${submission._id}:`, error);
-                    }
-                }
-                // Reload to show updated statuses, but skip auto-approve to prevent loop
+            const approvedCount = await drainAutoApprovePending();
+            if (approvedCount > 0) {
                 await loadSubmissions(true, false, true);
                 return;
             }
@@ -527,6 +786,52 @@ async function loadSubmissions(silent = false, append = false, skipAutoApprove =
             document.getElementById('submissionsList').innerHTML = 
                 '<p class="error">Failed to load submissions. Please try again.</p>';
         }
+    }
+}
+
+// Approve all pending for the current event, regardless of the visible status tab
+async function drainAutoApprovePending() {
+    if (!currentEvent?.autoApprove || !token) return 0;
+
+    try {
+        const params = new URLSearchParams({
+            eventId: currentEvent._id,
+            status: 'pending',
+            limit: '50',
+            skip: '0'
+        });
+        const response = await fetch(`${API_BASE_URL}/submissions?${params.toString()}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return 0;
+
+        const data = await response.json();
+        const pending = data.submissions || data || [];
+        if (!pending.length) return 0;
+
+        console.log(`Auto-approving ${pending.length} pending submission(s)...`);
+        let successCount = 0;
+        for (const submission of pending) {
+            try {
+                const approveResponse = await fetch(`${API_BASE_URL}/submissions/${submission._id}/approve`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                if (approveResponse.ok) {
+                    successCount += 1;
+                    console.log(`✅ Auto-approved submission ${submission._id}`);
+                }
+            } catch (error) {
+                console.error(`Failed to auto-approve submission ${submission._id}:`, error);
+            }
+        }
+        return successCount;
+    } catch (error) {
+        console.error('Auto-approve drain error:', error);
+        return 0;
     }
 }
 
@@ -1277,11 +1582,13 @@ async function approveSubmission(id) {
         if (response.ok) {
             // Immediate refresh to sync with server
             await loadSubmissions();
+            await loadCurrentUser();
             showStatus('Submission approved!', 'success');
         } else {
             // Revert optimistic update on error
+            const err = await response.json().catch(() => ({}));
             await loadSubmissions();
-            showStatus('Failed to approve submission', 'error');
+            showStatus(err.error || 'Failed to approve submission', 'error');
         }
     } catch (error) {
         console.error('Error approving submission:', error);
@@ -1765,9 +2072,11 @@ async function regenerateSubmission(id) {
         if (response.ok) {
             closeCompletedModal();
             await loadSubmissions();
+            await loadCurrentUser();
             showStatus('Duplicate created and added to queue for regeneration!', 'success');
         } else {
-            showStatus('Failed to regenerate submission', 'error');
+            const err = await response.json().catch(() => ({}));
+            showStatus(err.error || 'Failed to regenerate submission', 'error');
         }
     } catch (error) {
         console.error('Regenerate error:', error);
@@ -2017,13 +2326,84 @@ async function generateStickers() {
     }
 }
 
+let latestGpuStatus = { unknown: true };
+
+function updateGpuStatusChip(gpu) {
+    const chip = document.getElementById('gpuStatusChip');
+    if (!chip) return;
+    latestGpuStatus = gpu || { unknown: true };
+
+    chip.classList.remove('gpu-warm', 'gpu-starting', 'gpu-cold', 'gpu-unknown');
+    if (!gpu || gpu.unknown) {
+        chip.classList.add('gpu-unknown');
+        chip.textContent = 'GPU…';
+        chip.title = 'Waiting for GPU status from processor';
+        return;
+    }
+    if (gpu.warm) {
+        chip.classList.add('gpu-warm');
+        chip.textContent = 'GPU ready';
+        chip.title = `Ready: ${gpu.ready || 0}, running: ${gpu.running || 0}`;
+        return;
+    }
+    if (gpu.starting) {
+        chip.classList.add('gpu-starting');
+        chip.textContent = 'GPU starting…';
+        chip.title = 'Workers are initializing';
+        return;
+    }
+    chip.classList.add('gpu-cold');
+    chip.textContent = 'GPU idle';
+    chip.title = 'No warm workers — first job after idle may take longer';
+}
+
+async function fetchGpuStatus() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/processor/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) return latestGpuStatus;
+        const status = await response.json();
+        updateGpuStatusChip(status.gpu);
+        return status.gpu || latestGpuStatus;
+    } catch (_) {
+        return latestGpuStatus;
+    }
+}
+
+function generationStatusCopy(submissionStatus, gpu) {
+    const coldOrStarting = gpu && !gpu.unknown && (gpu.cold || gpu.starting);
+    const warm = gpu && gpu.warm;
+
+    switch (submissionStatus) {
+        case 'approved':
+            if (coldOrStarting) {
+                return 'Starting the GPU — the first job after idle can take a bit longer…';
+            }
+            return 'In the queue — starting shortly…';
+        case 'processing':
+            if (coldOrStarting && !warm) {
+                return 'GPU is coming online, then creating your stickers…';
+            }
+            return 'Creating your stickers…';
+        case 'completed':
+            return 'Ready — loading your stickers…';
+        default:
+            return 'Getting things ready…';
+    }
+}
+
 // Start monitoring generation progress
 function startGenerationMonitoring(submissionId) {
     // Show progress UI
     document.getElementById('generationProgress').style.display = 'block';
     document.getElementById('progressBar').style.width = '25%';
-    document.getElementById('progressStatus').textContent = 'Waiting for processor to pick up request...';
+    document.getElementById('progressStatus').textContent = 'In the queue — starting shortly…';
+    document.querySelectorAll('.progress-steps .step').forEach(step => {
+        step.classList.remove('active', 'complete');
+    });
     document.getElementById('step1').classList.add('active');
+    fetchGpuStatus();
     
     let pollCount = 0;
     const maxPolls = 300; // 10 minutes max (2 second intervals)
@@ -2033,6 +2413,11 @@ function startGenerationMonitoring(submissionId) {
         pollCount++;
         
         try {
+            // Refresh GPU readiness every few polls so cold-start copy can clear once warm
+            if (pollCount === 1 || pollCount % 3 === 0) {
+                await fetchGpuStatus();
+            }
+
             const response = await fetch(`${API_BASE_URL}/submissions/${submissionId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -2044,7 +2429,7 @@ function startGenerationMonitoring(submissionId) {
             }
             
             const submission = await response.json();
-            updateGenerationProgress(submission);
+            updateGenerationProgress(submission, latestGpuStatus);
             
             // Check if complete
             if (submission.status === 'completed') {
@@ -2075,8 +2460,8 @@ function startGenerationMonitoring(submissionId) {
     }, 2000);
 }
 
-// Update generation progress UI based on status
-function updateGenerationProgress(submission) {
+// Update generation progress UI based on status + GPU readiness
+function updateGenerationProgress(submission, gpu = latestGpuStatus) {
     const progressBar = document.getElementById('progressBar');
     const progressStatus = document.getElementById('progressStatus');
     
@@ -2084,22 +2469,36 @@ function updateGenerationProgress(submission) {
     document.querySelectorAll('.progress-steps .step').forEach(step => {
         step.classList.remove('active', 'complete');
     });
+
+    progressStatus.textContent = generationStatusCopy(submission.status, gpu);
     
     switch (submission.status) {
         case 'approved':
             progressBar.style.width = '25%';
-            progressStatus.textContent = 'Waiting for processor... (polls every 10 seconds)';
             document.getElementById('step1').classList.add('active');
             break;
-        case 'processing':
-            progressBar.style.width = '60%';
-            progressStatus.textContent = 'Processing... (this may take 30-60 seconds)';
-            document.getElementById('step1').classList.add('complete');
-            document.getElementById('step2').classList.add('active');
+        case 'processing': {
+            // Soft second phase while still processing — feels intentional without fake precision
+            const started = submission.processingStartedAt
+                ? Date.now() - new Date(submission.processingStartedAt).getTime()
+                : 0;
+            if (started > 20000) {
+                progressBar.style.width = '78%';
+                document.getElementById('step1').classList.add('complete');
+                document.getElementById('step2').classList.add('complete');
+                document.getElementById('step3').classList.add('active');
+                if (!(gpu && !gpu.unknown && (gpu.cold || gpu.starting) && !gpu.warm)) {
+                    progressStatus.textContent = 'Finishing up your stickers…';
+                }
+            } else {
+                progressBar.style.width = '55%';
+                document.getElementById('step1').classList.add('complete');
+                document.getElementById('step2').classList.add('active');
+            }
             break;
+        }
         case 'completed':
             progressBar.style.width = '100%';
-            progressStatus.textContent = 'Complete! Displaying results...';
             document.getElementById('step1').classList.add('complete');
             document.getElementById('step2').classList.add('complete');
             document.getElementById('step3').classList.add('complete');
@@ -2423,6 +2822,7 @@ async function checkSystemHealth() {
         }
         
         const status = await response.json();
+        if (status.gpu) updateGpuStatusChip(status.gpu);
         
         // Check for stuck submissions
         const submissionsResponse = await fetch(`${API_BASE_URL}/submissions`, {
@@ -2450,17 +2850,30 @@ async function checkSystemHealth() {
             const now = new Date();
             return (now - processingTime) > 120000; // Stuck for more than 2 minutes
         });
+
+        const gpu = status.gpu || {};
+        const gpuComingOnline = !gpu.unknown && (gpu.cold || gpu.starting) && !gpu.warm;
         
-        // Display warnings
+        // Display warnings — distinguish processor down vs GPU cold-start
         if (!status.isHealthy) {
             showSystemStatusBanner(
                 'Processing service is not responding. New submissions will not be processed automatically.',
                 'error'
             );
+        } else if (stuckInProcessing.length > 0 && gpuComingOnline) {
+            showSystemStatusBanner(
+                'GPU is starting after idle — the first generation can take longer. This is normal.',
+                'info'
+            );
         } else if (stuckInProcessing.length > 0) {
             showSystemStatusBanner(
                 `${stuckInProcessing.length} submission(s) stuck in processing. There may be an issue with the generation service.`,
                 'warning'
+            );
+        } else if (stuckInApproved.length > 0 && gpuComingOnline) {
+            showSystemStatusBanner(
+                'Jobs are queued while the GPU comes online. First one after idle may take a bit longer.',
+                'info'
             );
         } else if (stuckInApproved.length > 0 && status.isHealthy) {
             showSystemStatusBanner(
