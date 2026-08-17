@@ -144,18 +144,66 @@ let currentUser = null;
 
 function updateCreditsChip(credits) {
     const label = credits === null || credits === undefined ? 'Credits: —' : `Credits: ${credits}`;
-    ['creditsChip', 'creditsChipQueue', 'creditsChipUsers'].forEach((id) => {
+    ['creditsChip', 'creditsChipQueue', 'creditsChipUsers', 'creditsChipSettings'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.textContent = label;
     });
 }
 
+function getUserInitials(user) {
+    const name = String(user?.name || '').trim();
+    if (name) {
+        const parts = name.split(/\s+/).filter(Boolean);
+        return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+    }
+    return String(user?.email || '?').charAt(0).toUpperCase();
+}
+
+function fillAvatarElements(img, initialsEl, user) {
+    const initials = getUserInitials(user);
+    if (initialsEl) initialsEl.textContent = initials;
+    if (!img) return;
+    img.onerror = () => {
+        img.removeAttribute('src');
+        img.hidden = true;
+        img.style.display = 'none';
+        if (initialsEl) initialsEl.style.display = '';
+    };
+    if (user?.avatarUrl) {
+        img.src = user.avatarUrl;
+        img.hidden = false;
+        img.style.display = 'block';
+        if (initialsEl) initialsEl.style.display = 'none';
+    } else {
+        img.removeAttribute('src');
+        img.hidden = true;
+        img.style.display = 'none';
+        if (initialsEl) initialsEl.style.display = '';
+    }
+}
+
 function applyCurrentUserUI() {
-    const usersBtn = document.getElementById('usersNavBtn');
+    updateCreditsChip(currentUser?.credits);
+    document.querySelectorAll('.account-avatar-btn').forEach((btn) => {
+        fillAvatarElements(
+            btn.querySelector('.account-avatar-img'),
+            btn.querySelector('.account-avatar-initials'),
+            currentUser
+        );
+    });
+    fillAvatarElements(
+        document.getElementById('accountMenuAvatarImg'),
+        document.getElementById('accountMenuAvatarInitials'),
+        currentUser
+    );
+    const nameEl = document.getElementById('accountMenuName');
+    const emailEl = document.getElementById('accountMenuEmail');
+    if (nameEl) nameEl.textContent = currentUser?.name || currentUser?.email || 'Account';
+    if (emailEl) emailEl.textContent = currentUser?.email || '';
+    const usersBtn = document.getElementById('accountMenuUsersBtn');
     if (usersBtn) {
         usersBtn.style.display = currentUser?.role === 'superadmin' ? '' : 'none';
     }
-    updateCreditsChip(currentUser?.credits);
 }
 
 async function loadCurrentUser() {
@@ -423,21 +471,187 @@ document.getElementById('loginEmail')?.addEventListener('keypress', (e) => {
         document.getElementById('loginPassword')?.focus();
     }
 });
+['currentPassword', 'newPassword', 'newPasswordConfirm'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') submitChangePassword();
+    });
+});
 
 // ===== USER MANAGEMENT (superadmin) =====
 
+function hideMainScreens() {
+    ['eventSelectionScreen', 'eventQueueScreen', 'usersScreen', 'settingsScreen'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
 function showUsersScreen() {
-    document.getElementById('eventSelectionScreen').style.display = 'none';
-    document.getElementById('eventQueueScreen').style.display = 'none';
+    hideMainScreens();
     document.getElementById('usersScreen').style.display = 'block';
     loadUsers();
 }
 
 function backToEventsFromUsers() {
-    document.getElementById('usersScreen').style.display = 'none';
+    hideMainScreens();
     document.getElementById('eventSelectionScreen').style.display = 'block';
     loadEvents();
 }
+
+function showSettingsScreen() {
+    hideMainScreens();
+    document.getElementById('settingsScreen').style.display = 'block';
+    populateSettingsForm();
+}
+
+function backToEventsFromSettings() {
+    hideMainScreens();
+    document.getElementById('eventSelectionScreen').style.display = 'block';
+    loadEvents();
+}
+
+function closeAccountMenu() {
+    const menu = document.getElementById('accountMenuDropdown');
+    if (menu) menu.style.display = 'none';
+}
+
+function toggleAccountMenu(event) {
+    event.stopPropagation();
+    const menu = document.getElementById('accountMenuDropdown');
+    if (!menu) return;
+    const opening = menu.style.display === 'none' || !menu.style.display;
+    if (!opening) {
+        menu.style.display = 'none';
+        return;
+    }
+    applyCurrentUserUI();
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    menu.style.display = 'block';
+    const menuWidth = menu.offsetWidth || 240;
+    const left = Math.min(window.innerWidth - menuWidth - 12, Math.max(12, rect.right - menuWidth));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${rect.bottom + 8}px`;
+}
+
+document.addEventListener('click', (event) => {
+    const menu = document.getElementById('accountMenuDropdown');
+    if (!menu || menu.style.display === 'none') return;
+    if (menu.contains(event.target) || event.target.closest('.account-avatar-btn')) return;
+    closeAccountMenu();
+});
+
+function populateSettingsForm() {
+    const nameInput = document.getElementById('settingsName');
+    const emailInput = document.getElementById('settingsEmail');
+    if (nameInput) nameInput.value = currentUser?.name || '';
+    if (emailInput) emailInput.value = currentUser?.email || '';
+    fillAvatarElements(
+        document.getElementById('settingsAvatarImg'),
+        document.getElementById('settingsAvatarInitials'),
+        currentUser
+    );
+    const profileStatus = document.getElementById('profileStatus');
+    if (profileStatus) {
+        profileStatus.style.display = 'none';
+        profileStatus.textContent = '';
+    }
+    const passwordError = document.getElementById('changePasswordError');
+    if (passwordError) {
+        passwordError.textContent = '';
+        passwordError.classList.remove('show');
+    }
+}
+
+function fileToAvatarDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => {
+            const size = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const min = Math.min(img.width, img.height);
+            const sx = (img.width - min) / 2;
+            const sy = (img.height - min) / 2;
+            ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+            URL.revokeObjectURL(objectUrl);
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Could not read that image'));
+        };
+        img.src = objectUrl;
+    });
+}
+
+async function saveProfileSettings() {
+    const status = document.getElementById('profileStatus');
+    const name = document.getElementById('settingsName')?.value?.trim() || '';
+    const show = (message, type) => {
+        if (!status) return;
+        status.textContent = message;
+        status.className = `status-message ${type || ''}`;
+        status.style.display = 'block';
+    };
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save profile');
+        currentUser = data.user || currentUser;
+        applyCurrentUserUI();
+        populateSettingsForm();
+        show('Profile saved', 'success');
+    } catch (error) {
+        show(error.message, 'error');
+    }
+}
+
+async function uploadProfilePhoto(file) {
+    const status = document.getElementById('profileStatus');
+    const show = (message, type) => {
+        if (!status) return;
+        status.textContent = message;
+        status.className = `status-message ${type || ''}`;
+        status.style.display = 'block';
+    };
+    try {
+        show('Uploading photo…', '');
+        const avatar = await fileToAvatarDataUrl(file);
+        const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ avatar })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to upload photo');
+        currentUser = data.user || currentUser;
+        applyCurrentUserUI();
+        populateSettingsForm();
+        show('Profile photo updated', 'success');
+    } catch (error) {
+        show(error.message, 'error');
+    }
+}
+
+document.getElementById('profilePhotoInput')?.addEventListener('change', (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) uploadProfilePhoto(file);
+});
 
 async function loadUsers() {
     const list = document.getElementById('usersList');
@@ -459,14 +673,11 @@ async function loadUsers() {
                     <div>
                         <strong>${escapeHtml(u.name || u.email)}</strong>
                         <div class="user-meta">${escapeHtml(u.email)} · ${escapeHtml(u.role)} · ${escapeHtml(u.status)}</div>
-                        <div class="user-meta">Credits: <strong>${u.credits ?? 0}</strong>
-                            ${u.hasCapturePassword ? ' · Capture password set' : ' · No capture password'}
-                        </div>
+                        <div class="user-meta">Credits: <strong>${u.credits ?? 0}</strong></div>
                     </div>
                     <div class="user-card-actions">
                         <button class="btn-sm btn-secondary" onclick="adjustUserCredits('${u._id}')">Adjust credits</button>
-                        <button class="btn-sm btn-secondary" onclick="setUserCapturePassword('${u._id}')">Set capture password</button>
-                        ${u.status === 'invited' ? `<button class="btn-sm btn-primary" onclick="resendInvite('${u._id}')">Resend invite</button>` : ''}
+                        ${u.status === 'invited' ? `<button class="btn-sm btn-primary" onclick="resendInvite('${u._id}')">Resend invite</button>` : `<button class="btn-sm btn-secondary" onclick="sendPasswordReset('${u._id}', '${encodeURIComponent(u.email)}')">Reset password</button>`}
                         ${u.status === 'active' && u.role !== 'superadmin' ? `<button class="btn-sm btn-warning" onclick="setUserRole('${u._id}', 'superadmin')">Make superadmin</button>` : ''}
                         ${u.role === 'superadmin' ? `<button class="btn-sm btn-secondary" onclick="setUserRole('${u._id}', 'user')">Demote to user</button>` : ''}
                         ${u.status === 'active' ? `<button class="btn-sm btn-danger" onclick="setUserStatus('${u._id}', 'disabled')">Disable</button>` : ''}
@@ -550,28 +761,66 @@ async function adjustUserCredits(userId) {
     }
 }
 
-async function setUserCapturePassword(userId) {
-    const password = prompt('New capture password for this account (min 4 chars):');
-    if (password === null) return;
-    if (password.length < 4) {
-        showStatus('Capture password must be at least 4 characters', 'error');
+function openCapturePage() {
+    const eventId = currentEvent?._id || localStorage.getItem('currentEventId');
+    window.location.href = eventId
+        ? `capture.html?event=${encodeURIComponent(eventId)}`
+        : 'capture.html';
+}
+
+async function submitChangePassword() {
+    const errorDiv = document.getElementById('changePasswordError');
+    const status = document.getElementById('passwordStatus');
+    const currentPassword = document.getElementById('currentPassword')?.value || '';
+    const newPassword = document.getElementById('newPassword')?.value || '';
+    const confirm = document.getElementById('newPasswordConfirm')?.value || '';
+
+    const showError = (message) => {
+        if (status) status.style.display = 'none';
+        if (!errorDiv) return;
+        errorDiv.textContent = message;
+        errorDiv.classList.add('show');
+    };
+
+    if (!currentPassword || !newPassword) {
+        showError('Enter your current password and a new password');
         return;
     }
+    if (newPassword.length < 8) {
+        showError('New password must be at least 8 characters');
+        return;
+    }
+    if (newPassword !== confirm) {
+        showError('New passwords do not match');
+        return;
+    }
+
     try {
-        const response = await fetch(`${API_BASE_URL}/users/${userId}/capture-password`, {
+        const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ password })
+            body: JSON.stringify({ currentPassword, newPassword })
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed');
-        showStatus('Capture password updated', 'success');
-        loadUsers();
+        if (!response.ok) throw new Error(data.error || 'Failed to update password');
+        if (errorDiv) {
+            errorDiv.textContent = '';
+            errorDiv.classList.remove('show');
+        }
+        ['currentPassword', 'newPassword', 'newPasswordConfirm'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        if (status) {
+            status.textContent = 'Password updated';
+            status.className = 'status-message success';
+            status.style.display = 'block';
+        }
     } catch (error) {
-        showStatus(error.message, 'error');
+        showError(error.message);
     }
 }
 
@@ -630,8 +879,36 @@ async function resendInvite(userId) {
         let msg = 'Invite resent';
         if (data.inviteUrl && !data.email?.sent) msg += `: ${data.inviteUrl}`;
         showStatus(msg, 'success');
+        customAlert(msg);
     } catch (error) {
         showStatus(error.message, 'error');
+        customAlert(error.message);
+    }
+}
+
+async function sendPasswordReset(userId, encodedEmail) {
+    const email = decodeURIComponent(encodedEmail || '');
+    const confirmed = await customConfirm(`Send a password reset link to ${email || 'this user'}? The current password keeps working until they set a new one.`);
+    if (!confirmed) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send reset');
+        if (data.email?.sent) {
+            await customAlert(`Password reset email sent to ${email}. The link expires in 24 hours.`);
+            return;
+        }
+        const resetUrl = data.resetUrl || data.email?.resetUrl;
+        await customAlert(
+            resetUrl
+                ? `Email was not sent. Share this reset link instead:\n${resetUrl}`
+                : 'Reset was created, but no email was sent and no link was returned.'
+        );
+    } catch (error) {
+        await customAlert(error.message);
     }
 }
 
@@ -1029,7 +1306,7 @@ async function selectEvent(eventId) {
     }
     
     // Switch screens
-    document.getElementById('eventSelectionScreen').style.display = 'none';
+    hideMainScreens();
     document.getElementById('eventQueueScreen').style.display = 'block';
     
     // Load event data
@@ -1048,7 +1325,7 @@ function backToEvents() {
     // Clear saved event from localStorage
     localStorage.removeItem('currentEventId');
     
-    document.getElementById('eventQueueScreen').style.display = 'none';
+    hideMainScreens();
     document.getElementById('eventSelectionScreen').style.display = 'block';
     
     loadEvents();

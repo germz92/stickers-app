@@ -205,20 +205,22 @@ header .container {
     position: absolute;
     top: 20px;
     right: 20px;
-    background: rgba(255, 85, 85, 0.2);
-    border: 1px solid rgba(255, 85, 85, 0.3);
-    color: #fff;
-    padding: 10px 15px;
+    background: rgba(0, 229, 255, 0.12);
+    border: 1px solid rgba(0, 229, 255, 0.35);
+    color: #00e5ff;
+    padding: 8px 12px;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 1.2em;
+    font-size: 0.8em;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     transition: all 0.3s ease;
     z-index: 10;
 }
 
 .btn-logout:hover {
-    background: rgba(255, 85, 85, 0.4);
-    border-color: rgba(255, 85, 85, 0.6);
+    background: rgba(0, 229, 255, 0.25);
+    border-color: rgba(0, 229, 255, 0.6);
     transform: scale(1.05);
 }
 
@@ -515,6 +517,7 @@ header h1 {
 }
 
 .btn-primary {
+    display: inline-block;
     width: 100%;
     padding: 12px;
     background: rgba(0, 229, 255, 0.15);
@@ -525,6 +528,9 @@ header h1 {
     font-weight: 400;
     letter-spacing: 1px;
     text-transform: uppercase;
+    text-decoration: none;
+    text-align: center;
+    box-sizing: border-box;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }

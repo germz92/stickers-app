@@ -14,9 +14,12 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['superadmin', 'user'], default: 'user' },
   status: { type: String, enum: ['invited', 'active', 'disabled'], default: 'invited' },
   credits: { type: Number, default: 0, min: 0 },
+  avatarUrl: { type: String, default: '' },
   capturePasswordHash: { type: String, default: '' },
   inviteTokenHash: { type: String, default: '' },
   inviteExpiresAt: { type: Date },
+  resetTokenHash: { type: String, default: '' },
+  resetExpiresAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
   lastLoginAt: { type: Date }
 });
@@ -228,6 +231,46 @@ async function sendInviteEmail(user, rawToken) {
   }
 }
 
+async function sendPasswordResetEmail(user, rawToken) {
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+  const resetUrl = `${baseUrl}/reset-password.html?token=${encodeURIComponent(rawToken)}`;
+
+  if (!process.env.SENDGRID_API_KEY) {
+    console.warn('📧 Password reset email skipped (no SENDGRID_API_KEY)');
+    return { sent: false, reason: 'No SendGrid API key', resetUrl };
+  }
+
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+  if (!fromEmail) {
+    return { sent: false, reason: 'No SENDGRID_FROM_EMAIL', resetUrl };
+  }
+
+  const msg = {
+    to: user.email,
+    from: {
+      email: fromEmail,
+      name: process.env.SENDGRID_FROM_NAME || 'Lumetry Stickers'
+    },
+    subject: 'Reset your Lumetry Stickers password',
+    html: `
+      <p>Hi${user.name ? ` ${user.name}` : ''},</p>
+      <p>A superadmin requested a password reset for your Lumetry Stickers account. Click the link below to choose a new password:</p>
+      <p><a href="${resetUrl}">${resetUrl}</a></p>
+      <p>This link expires in 24 hours. If you did not expect this, you can ignore the email and keep using your current password.</p>
+    `,
+    text: `Reset your Lumetry Stickers password: ${resetUrl}`
+  };
+
+  try {
+    await sgMail.send(msg);
+    console.log(`📧 Password reset sent to ${user.email}`);
+    return { sent: true, to: user.email, resetUrl };
+  } catch (error) {
+    console.error('📧 Password reset email error:', error.message);
+    return { sent: false, error: error.message, resetUrl };
+  }
+}
+
 function publicUser(user) {
   if (!user) return null;
   const obj = user.toObject ? user.toObject() : user;
@@ -238,6 +281,7 @@ function publicUser(user) {
     role: obj.role,
     status: obj.status,
     credits: obj.credits || 0,
+    avatarUrl: obj.avatarUrl || '',
     hasCapturePassword: Boolean(obj.capturePasswordHash),
     createdAt: obj.createdAt,
     lastLoginAt: obj.lastLoginAt || null,
@@ -257,6 +301,7 @@ module.exports = {
   adjustCredits,
   createInviteToken,
   sendInviteEmail,
+  sendPasswordResetEmail,
   publicUser,
   bcrypt
 };

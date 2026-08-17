@@ -15,15 +15,12 @@
     <link rel="stylesheet" href="css/capture.css">
 </head>
 <body>
-    <!-- Login Modal -->
+    <!-- Login Modal: capture uses the same admin session -->
     <div id="loginModal" class="modal">
         <div class="modal-content">
-            <h2>Capture Access</h2>
-            <p>Enter the account email and capture password</p>
-            <input type="email" id="loginEmail" placeholder="Account email" autocomplete="username">
-            <input type="password" id="loginPassword" placeholder="Capture password" autocomplete="current-password">
-            <button onclick="login()" class="btn-primary">Login</button>
-            <div id="loginError" class="error-message"></div>
+            <h2>Sign in required</h2>
+            <p>Log in on the Admin page, then open Capture from there. There is no separate capture password.</p>
+            <a href="admin.html" class="btn-primary">Go to Admin Login</a>
         </div>
     </div>
 
@@ -34,7 +31,7 @@
                 <div class="container">
                     <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
                     <h1>Select Your Event</h1>
-                    <button onclick="logout()" class="btn-logout" title="Logout">🚪</button>
+                    <button onclick="backToAdmin()" class="btn-logout" title="Back to Admin">Admin</button>
                 </div>
             </header>
 
@@ -89,7 +86,7 @@
                 <div class="container">
                     <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
                     <h1>Complete Your Details</h1>
-                    <button onclick="logout()" class="btn-logout" title="Logout">🚪</button>
+                    <button onclick="backToAdmin()" class="btn-logout" title="Back to Admin">Admin</button>
                 </div>
             </header>
 

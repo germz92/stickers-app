@@ -28,168 +28,97 @@ function customAlert(message) {
     });
 }
 
-// Check for existing token on page load
+function getCaptureSession() {
+    const adminToken = localStorage.getItem('adminToken');
+    const adminExpiry = localStorage.getItem('adminTokenExpiry');
+    if (adminToken) {
+        return { token: adminToken, expiry: adminExpiry };
+    }
+    return {
+        token: localStorage.getItem('captureToken'),
+        expiry: localStorage.getItem('captureTokenExpiry')
+    };
+}
+
+function enterCaptureApp() {
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+    startTokenExpiryChecker();
+    loadEvents();
+}
+
+// Check for existing admin session on page load
 document.addEventListener('DOMContentLoaded', () => {
-    token = localStorage.getItem('captureToken');
-    tokenExpiryTime = localStorage.getItem('captureTokenExpiry');
-    
-    if (token && tokenExpiryTime) {
-        // Check if token is expired
-        if (Date.now() >= parseInt(tokenExpiryTime)) {
-            console.log('Token expired, logging out');
-            logout();
-        } else {
-            // Verify token is still valid
-            verifyToken();
-            // Start token expiry checker
-            startTokenExpiryChecker();
-        }
+    const session = getCaptureSession();
+    token = session.token;
+    tokenExpiryTime = session.expiry;
+
+    if (token && tokenExpiryTime && Date.now() >= parseInt(tokenExpiryTime)) {
+        showLoginModal();
+        return;
+    }
+
+    if (token) {
+        verifyToken();
     } else {
-        // No token, show login modal immediately
         showLoginModal();
     }
 });
 
-// Login function
-async function login() {
-    const email = document.getElementById('loginEmail')?.value?.trim();
-    const password = document.getElementById('loginPassword').value;
-    const errorDiv = document.getElementById('loginError');
-    
-    if (!email || !password) {
-        errorDiv.textContent = 'Please enter account email and capture password';
-        errorDiv.classList.add('show');
-        return;
-    }
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/auth/login/capture`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email, password })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            token = data.token;
-            localStorage.setItem('captureToken', token);
-            
-            // Set token expiry time (24 hours from now)
-            tokenExpiryTime = Date.now() + (24 * 60 * 60 * 1000);
-            localStorage.setItem('captureTokenExpiry', tokenExpiryTime.toString());
-            localStorage.setItem('captureAccountEmail', email);
-            
-            document.getElementById('loginModal').style.display = 'none';
-            document.getElementById('mainContent').style.display = 'block';
-            
-            // Start token expiry checker
-            startTokenExpiryChecker();
-            
-            // Load events for selection
-            loadEvents();
-        } else {
-            errorDiv.textContent = data.error || 'Invalid email or capture password';
-            errorDiv.classList.add('show');
-        }
-    } catch (error) {
-        console.error('Login error:', error);
-        errorDiv.textContent = 'Connection error. Please check your network.';
-        errorDiv.classList.add('show');
-    }
-}
-
 // Verify token
 async function verifyToken() {
     try {
-        // Try to make a simple authenticated request
-        const response = await fetch(`${API_BASE_URL}/events`, {
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
 
-        if (response.ok || response.status === 403) {
-            // Token is valid (403 means valid token but wrong role, which is OK for capture page)
-            document.getElementById('loginModal').style.display = 'none';
-            document.getElementById('mainContent').style.display = 'block';
-            
-            // Load events for selection
-            loadEvents();
-        } else if (response.status === 401) {
-            // Token is invalid or expired
-            console.log('Token expired or invalid, requesting re-login');
-            localStorage.removeItem('captureToken');
-            token = null;
-            showLoginModal();
+        if (response.ok) {
+            enterCaptureApp();
         } else {
-            // Other error
-            localStorage.removeItem('captureToken');
-            token = null;
             showLoginModal();
         }
     } catch (error) {
         console.error('Token verification error:', error);
-        // If verification fails, clear token and show login
-        localStorage.removeItem('captureToken');
-        token = null;
         showLoginModal();
     }
 }
 
 // Show login modal
 function showLoginModal() {
+    token = null;
     document.getElementById('loginModal').style.display = 'flex';
     document.getElementById('mainContent').style.display = 'none';
-    const emailField = document.getElementById('loginEmail');
-    if (emailField) {
-        emailField.value = localStorage.getItem('captureAccountEmail') || '';
-    }
-    const passwordField = document.getElementById('loginPassword');
-    if (passwordField) {
-        passwordField.value = '';
-        (emailField?.value ? passwordField : emailField || passwordField).focus();
-    }
-    // Clear any error messages
-    const errorDiv = document.getElementById('loginError');
-    if (errorDiv) {
-        errorDiv.textContent = '';
-        errorDiv.classList.remove('show');
-    }
 }
 
-// Logout function (clears token and shows login)
+function backToAdmin() {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+    window.location.href = 'admin.html';
+}
+
+// Session expired: send them back to admin login
 function logout() {
     localStorage.removeItem('captureToken');
     localStorage.removeItem('captureTokenExpiry');
     token = null;
     tokenExpiryTime = null;
     selectedEvent = null;
-    
-    // Stop token expiry checker
+
     if (tokenCheckInterval) {
         clearInterval(tokenCheckInterval);
         tokenCheckInterval = null;
     }
-    
-    // Stop camera if active
+
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
     }
-    
-    // Reset to login screen
+
     showLoginModal();
-    
-    // Reset all steps
-    document.getElementById('eventSelectStep').style.display = 'none';
-    document.getElementById('cameraStep').style.display = 'none';
-    document.getElementById('formStep').style.display = 'none';
-    document.getElementById('successStep').style.display = 'none';
-    
-    console.log('Logged out successfully');
 }
 
 // Start token expiry checker (checks every minute)
@@ -217,13 +146,6 @@ function startTokenExpiryChecker() {
     }, 60000); // Check every minute
 }
 
-// Allow Enter key to submit login
-document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        login();
-    }
-});
-
 // ===== EVENT SELECTION =====
 
 // Load events
@@ -248,6 +170,10 @@ async function loadEvents() {
         
         const events = await response.json();
         displayEvents(events);
+        const requestedEventId = new URLSearchParams(window.location.search).get('event');
+        if (requestedEventId && events.some((event) => String(event._id) === requestedEventId && !event.isArchived)) {
+            selectEvent(requestedEventId);
+        }
     } catch (error) {
         console.error('Error loading events:', error);
         document.getElementById('eventsList').innerHTML = 

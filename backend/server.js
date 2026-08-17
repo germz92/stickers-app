@@ -23,6 +23,7 @@ const {
   adjustCredits,
   createInviteToken,
   sendInviteEmail,
+  sendPasswordResetEmail,
   publicUser
 } = require('./users');
 
@@ -364,6 +365,67 @@ app.post('/api/auth/login/admin', async (req, res) => {
   }
 });
 
+app.post('/api/auth/change-password', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.user.userId) {
+      return res.status(400).json({ error: 'Legacy admin cannot change password this way' });
+    }
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user || user.status !== 'active' || !user.passwordHash) {
+      return res.status(401).json({ error: 'Account not found or disabled' });
+    }
+    const ok = await bcrypt.compare(String(currentPassword), user.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    user.passwordHash = await bcrypt.hash(String(newPassword), 10);
+    await user.save();
+    res.json({ message: 'Password updated' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/profile', authenticateAdmin, async (req, res) => {
+  try {
+    if (!req.user.userId) {
+      return res.status(400).json({ error: 'Legacy admin cannot update a profile this way' });
+    }
+    const user = await User.findById(req.user.userId);
+    if (!user || user.status !== 'active') {
+      return res.status(401).json({ error: 'Account not found or disabled' });
+    }
+
+    if (req.body.name !== undefined) {
+      user.name = String(req.body.name || '').trim();
+    }
+    if (req.body.avatar) {
+      if (user.avatarUrl) {
+        try {
+          await deleteImageFromS3(user.avatarUrl);
+        } catch (err) {
+          console.warn('Failed to delete previous avatar:', err.message);
+        }
+      }
+      user.avatarUrl = await uploadImageToS3(req.body.avatar, 'avatars');
+    }
+
+    await user.save();
+    res.json({ user: publicUser(user) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/auth/me', authenticateAdmin, async (req, res) => {
   try {
     if (!req.user.userId) {
@@ -414,6 +476,36 @@ app.post('/api/auth/accept-invite', async (req, res) => {
       { expiresIn: '24h' }
     );
     res.json({ token: jwtToken, role: user.role, user: publicUser(user) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const tokenHash = hashToken(token);
+    const user = await User.findOne({
+      resetTokenHash: tokenHash,
+      resetExpiresAt: { $gt: new Date() }
+    });
+    if (!user || user.status === 'invited') {
+      return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
+
+    user.passwordHash = await bcrypt.hash(String(password), 10);
+    user.resetTokenHash = '';
+    user.resetExpiresAt = undefined;
+    await user.save();
+
+    res.json({ message: 'Password updated. You can now log in.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -560,6 +652,30 @@ app.post('/api/users/:id/resend-invite', authenticateAdmin, requireSuperadmin, a
     await user.save();
     const emailResult = await sendInviteEmail(user, token);
     res.json({ user: publicUser(user), email: emailResult, inviteUrl: emailResult.inviteUrl || null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users/:id/reset-password', authenticateAdmin, requireSuperadmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.status === 'invited') {
+      return res.status(400).json({ error: 'User has not activated yet. Resend the invite instead.' });
+    }
+
+    const { token, tokenHash } = createInviteToken();
+    user.resetTokenHash = tokenHash;
+    user.resetExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await user.save();
+
+    const emailResult = await sendPasswordResetEmail(user, token);
+    res.json({
+      user: publicUser(user),
+      email: emailResult,
+      resetUrl: emailResult.resetUrl || null
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
