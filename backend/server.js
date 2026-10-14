@@ -68,7 +68,8 @@ const eventSchema = new mongoose.Schema({
     lockedPromptValue: { type: String, default: '' },
     promptPresets: [{
       name: String,
-      value: String
+      value: String,
+      imageUrl: { type: String, default: '' }
     }],
     customTextMode: { 
       type: String, 
@@ -119,6 +120,15 @@ const eventSchema = new mongoose.Schema({
 });
 
 const Event = mongoose.model('Event', eventSchema);
+
+const eventShareSchema = new mongoose.Schema({
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true, index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now }
+});
+eventShareSchema.index({ eventId: 1, userId: 1 }, { unique: true });
+const EventShare = mongoose.model('EventShare', eventShareSchema);
 
 // Submission Schema
 const submissionSchema = new mongoose.Schema({
@@ -177,13 +187,62 @@ function getOwnerIdFromUser(user) {
   return user?.userId || null;
 }
 
+function idsMatch(a, b) {
+  return Boolean(a && b && String(a) === String(b));
+}
+
+function eventOwnerId(event) {
+  if (!event) return null;
+  return event.ownerId?._id || event.ownerId || null;
+}
+
+async function getSharedEventIds(userId) {
+  if (!userId) return [];
+  const shares = await EventShare.find({ userId }).select('eventId');
+  return shares.map((share) => share.eventId);
+}
+
 async function assertOwnedEvent(eventId, userId) {
   const event = await Event.findOne({ _id: eventId, ownerId: userId });
   return event;
 }
 
-async function assertOwnedSubmission(submissionId, userId) {
-  return Submission.findOne({ _id: submissionId, ownerId: userId });
+async function assertAccessibleEvent(eventId, userId) {
+  if (!userId) return Event.findById(eventId);
+  const event = await Event.findById(eventId);
+  if (!event) return null;
+  if (idsMatch(eventOwnerId(event), userId)) return event;
+  const share = await EventShare.findOne({ eventId: event._id, userId });
+  return share ? event : null;
+}
+
+async function assertAccessibleSubmission(submissionId, userId) {
+  if (!userId) return Submission.findById(submissionId);
+  const submission = await Submission.findById(submissionId);
+  if (!submission) return null;
+  if (idsMatch(submission.ownerId, userId)) return submission;
+  const event = await Event.findById(submission.eventId).select('ownerId');
+  if (event && idsMatch(eventOwnerId(event), userId)) return submission;
+  const share = await EventShare.findOne({ eventId: submission.eventId, userId });
+  return share ? submission : null;
+}
+
+function withEventAccess(event, userId) {
+  if (!userId) return { access: 'owner', isOwner: true };
+  const isOwner = idsMatch(eventOwnerId(event), userId);
+  return { access: isOwner ? 'owner' : 'shared', isOwner };
+}
+
+function serializeShare(share) {
+  const user = share.userId && typeof share.userId === 'object' ? share.userId : null;
+  return {
+    _id: share._id,
+    eventId: share.eventId,
+    userId: user?._id || share.userId,
+    email: user?.email || '',
+    name: user?.name || '',
+    createdAt: share.createdAt
+  };
 }
 
 function requireSuperadmin(req, res, next) {
@@ -719,6 +778,7 @@ app.post('/api/auth/capture-password', authenticateAdmin, async (req, res) => {
 app.post('/api/submissions', authenticateCapture, async (req, res) => {
   try {
     const { eventId, name, firstName, lastName, jobTitle, company, email, phone, photo, prompt, customText } = req.body;
+    const detailsPending = req.body.detailsPending === true;
 
     if (!eventId || !photo || !prompt) {
       return res.status(400).json({ error: 'Event, photo, and prompt are required' });
@@ -727,7 +787,7 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     // Verify event exists, is not archived, and belongs to the capture account
     let event;
     if (req.user.userId) {
-      event = await assertOwnedEvent(eventId, req.user.userId);
+      event = await assertAccessibleEvent(eventId, req.user.userId);
     } else {
       event = await Event.findById(eventId);
     }
@@ -743,12 +803,14 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       ? `${(firstName || '').trim()} ${(lastName || '').trim()}`.trim()
       : (name || '').trim();
 
-    if (event.badgeMode) {
-      if (!(firstName || '').trim() || !(lastName || '').trim() || !(jobTitle || '').trim() || !(company || '').trim()) {
-        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+    if (!detailsPending) {
+      if (event.badgeMode) {
+        if (!(firstName || '').trim() || !(lastName || '').trim() || !(jobTitle || '').trim() || !(company || '').trim()) {
+          return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+        }
+      } else if (!resolvedName) {
+        return res.status(400).json({ error: 'Name is required' });
       }
-    } else if (!resolvedName) {
-      return res.status(400).json({ error: 'Name is required' });
     }
 
     // Upload photo to S3
@@ -766,7 +828,7 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
     const submission = new Submission({
       ownerId: event.ownerId || req.user.userId || undefined,
       eventId,
-      name: resolvedName,
+      name: resolvedName || 'Guest',
       firstName: event.badgeMode ? (firstName || '').trim() : '',
       lastName: event.badgeMode ? (lastName || '').trim() : '',
       jobTitle: event.badgeMode ? (jobTitle || '').trim() : '',
@@ -782,13 +844,14 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
 
     await submission.save();
 
-    // Auto-approve on the server so generation does not depend on an admin
-    // browser sitting on the Pending tab.
-    if (event.autoApprove) {
+    // Queue generation immediately when the kiosk already has a theme
+    // (`detailsPending`), or when the event has auto-approve enabled.
+    const shouldQueue = event.autoApprove || detailsPending;
+    if (shouldQueue) {
       try {
         const billTo = submission.ownerId;
         if (billTo) {
-          await spendCreditForGeneration(billTo, submission._id, 'auto-approve');
+          await spendCreditForGeneration(billTo, submission._id, detailsPending ? 'kiosk-early' : 'auto-approve');
         }
         submission.status = 'approved';
         submission.approvedAt = new Date();
@@ -796,6 +859,12 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
         await submission.save();
       } catch (autoErr) {
         console.warn(`Auto-approve skipped for ${submission._id}: ${autoErr.message}`);
+        if (detailsPending) {
+          await Submission.findByIdAndDelete(submission._id);
+          return res.status(autoErr.statusCode || 400).json({
+            error: autoErr.message || 'Could not start generation'
+          });
+        }
       }
     }
     
@@ -820,7 +889,7 @@ app.post('/api/submissions/admin-upload', authenticateAdmin, async (req, res) =>
     }
 
     const event = ownerId
-      ? await assertOwnedEvent(eventId, ownerId)
+      ? await assertAccessibleEvent(eventId, ownerId)
       : await Event.findById(eventId);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -936,15 +1005,25 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
     // Build query
     const query = {};
     const ownerId = getOwnerIdFromUser(req.user);
-    if (ownerId) {
-      query.ownerId = ownerId;
-    }
     if (eventId) {
+      if (ownerId) {
+        const event = await assertAccessibleEvent(eventId, ownerId);
+        if (!event) {
+          return res.status(404).json({ error: 'Event not found' });
+        }
+      }
       query.eventId = eventId;
+    } else if (ownerId) {
+      const sharedIds = await getSharedEventIds(ownerId);
+      if (sharedIds.length) {
+        query.$or = [{ ownerId }, { eventId: { $in: sharedIds } }];
+      } else {
+        query.ownerId = ownerId;
+      }
     }
 
     try {
-      await reconcileProcessingSubmissions(ownerId, eventId);
+      await reconcileProcessingSubmissions(eventId ? null : ownerId, eventId);
     } catch (reconcileErr) {
       console.warn('Processing reconcile skipped:', reconcileErr.message);
     }
@@ -954,11 +1033,17 @@ app.get('/api/submissions', authenticateAdmin, async (req, res) => {
     if (search && String(search).trim()) {
       const escaped = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const pattern = new RegExp(escaped, 'i');
-      query.$or = [
+      const searchOr = [
         { name: pattern },
         { email: pattern },
         { phone: pattern }
       ];
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: searchOr }];
+        delete query.$or;
+      } else {
+        query.$or = searchOr;
+      }
     }
     
     // Pagination parameters
@@ -1049,7 +1134,7 @@ app.get('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
     
     if (!submission) {
@@ -1876,12 +1961,76 @@ app.patch('/api/submissions/:id', authenticateAdminOrProcessor, async (req, res)
   }
 });
 
+// Attach attendee details after kiosk generation has already started
+app.patch('/api/submissions/:id/attendee', authenticateCapture, async (req, res) => {
+  try {
+    const ownerId = getOwnerIdFromUser(req.user);
+    const submission = ownerId
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
+      : await Submission.findById(req.params.id);
+
+    if (!submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    const event = await Event.findById(submission.eventId);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const { name, firstName, lastName, jobTitle, company, email, phone } = req.body;
+    const hadContact = Boolean(submission.email || submission.phone);
+
+    if (event.badgeMode) {
+      const nextFirst = (firstName !== undefined ? firstName : submission.firstName || '').trim();
+      const nextLast = (lastName !== undefined ? lastName : submission.lastName || '').trim();
+      const nextJob = (jobTitle !== undefined ? jobTitle : submission.jobTitle || '').trim();
+      const nextCompany = (company !== undefined ? company : submission.company || '').trim();
+      if (!nextFirst || !nextLast || !nextJob || !nextCompany) {
+        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
+      }
+      submission.firstName = nextFirst;
+      submission.lastName = nextLast;
+      submission.jobTitle = nextJob;
+      submission.company = nextCompany;
+      submission.name = `${nextFirst} ${nextLast}`.trim();
+    } else {
+      const trimmed = (name !== undefined ? name : submission.name || '').trim();
+      if (!trimmed) {
+        return res.status(400).json({ error: 'Name is required' });
+      }
+      submission.name = trimmed;
+    }
+
+    if (email !== undefined) submission.email = String(email || '').trim();
+    if (phone !== undefined) submission.phone = String(phone || '').trim();
+    await submission.save();
+
+    const hasContact = Boolean(submission.email || submission.phone);
+    if (submission.status === 'completed' && hasContact && !hadContact) {
+      try {
+        await submission.populate('eventId');
+        await sendCompletionNotifications(submission, submission.eventId);
+      } catch (notifyError) {
+        console.error('Attendee notification error (non-fatal):', notifyError.message);
+      }
+    }
+
+    res.json({
+      message: 'Details saved',
+      submissionId: submission._id
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Resend completion notifications (email and/or SMS) for a submission (admin only)
 app.post('/api/submissions/:id/notify', authenticateAdmin, async (req, res) => {
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
@@ -1946,7 +2095,7 @@ app.patch('/api/submissions/:id/approve', authenticateAdmin, async (req, res) =>
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
 
     if (!submission) {
@@ -2009,7 +2158,7 @@ app.post('/api/submissions/:id/queue-for-generation', authenticateAdmin, async (
     const { prompt, customText, photo, firstName, lastName, jobTitle, company } = req.body;
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
 
     if (!submission) {
@@ -2084,7 +2233,7 @@ app.post('/api/submissions/:id/regenerate', authenticateAdmin, async (req, res) 
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const originalSubmission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
     
     if (!originalSubmission) {
@@ -2145,7 +2294,7 @@ app.post('/api/submissions/:id/add-to-queue', authenticateAdmin, async (req, res
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
     
     if (!submission) {
@@ -2263,7 +2412,7 @@ app.delete('/api/submissions/:id', authenticateAdmin, async (req, res) => {
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const submission = ownerId
-      ? await assertOwnedSubmission(req.params.id, ownerId)
+      ? await assertAccessibleSubmission(req.params.id, ownerId)
       : await Submission.findById(req.params.id);
     
     if (!submission) {
@@ -2581,9 +2730,14 @@ app.get('/api/events', async (req, res) => {
     
     let query = {};
 
-    // Multi-tenant: when logged in, only that account's events
+    // Multi-tenant: owned events plus events shared with this account
     if (ownerId) {
-      query.ownerId = ownerId;
+      const sharedIds = await getSharedEventIds(ownerId);
+      if (sharedIds.length) {
+        query.$or = [{ ownerId }, { _id: { $in: sharedIds } }];
+      } else {
+        query.ownerId = ownerId;
+      }
     } else if (isAdmin) {
       // Legacy admin without userId — no owner filter
     } else {
@@ -2595,7 +2749,9 @@ app.get('/api/events', async (req, res) => {
       query.isArchived = false;
     }
     
-    const events = await Event.find(query).sort({ eventDate: -1 });
+    const events = await Event.find(query)
+      .populate('ownerId', 'name email')
+      .sort({ eventDate: -1 });
     
     // For each event, get submission counts
     const eventsWithCounts = await Promise.all(events.map(async (event) => {
@@ -2604,7 +2760,8 @@ app.get('/api/events', async (req, res) => {
       return {
         ...event.toObject(),
         pendingCount,
-        totalCount
+        totalCount,
+        ...withEventAccess(event, ownerId)
       };
     }));
     
@@ -2617,10 +2774,31 @@ app.get('/api/events', async (req, res) => {
 // Get single event (public - for capture page settings)
 app.get('/api/events/:id', async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id);
+    let ownerId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.userId) ownerId = decoded.userId;
+      } catch (e) {
+        // Not authenticated
+      }
+    }
+
+    const event = ownerId
+      ? await assertAccessibleEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
     
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (ownerId) {
+      return res.json({
+        ...event.toObject(),
+        ...withEventAccess(event, ownerId)
+      });
     }
     
     res.json(event);
@@ -2666,7 +2844,7 @@ app.post('/api/events/:id/export', authenticateAdmin, async (req, res) => {
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -2766,7 +2944,7 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
     const ownerId = getOwnerIdFromUser(req.user);
     
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     
     if (!event) {
@@ -2783,7 +2961,13 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
         promptMode: captureSettings.promptMode || 'free',
         lockedPromptTitle: captureSettings.lockedPromptTitle || '',
         lockedPromptValue: captureSettings.lockedPromptValue || '',
-        promptPresets: captureSettings.promptPresets || [],
+        promptPresets: (captureSettings.promptPresets || []).map((preset) => ({
+          name: preset.name || '',
+          value: preset.value || '',
+          imageUrl: typeof preset.imageUrl === 'string' && /^https?:\/\//i.test(preset.imageUrl)
+            ? preset.imageUrl
+            : ''
+        })),
         customTextMode: captureSettings.customTextMode || 'free',
         customTextDisabled: captureSettings.customTextDisabled || false,
         lockedCustomTextValue: captureSettings.lockedCustomTextValue || '',
@@ -2805,7 +2989,10 @@ app.put('/api/events/:id', authenticateAdmin, async (req, res) => {
     event.updatedAt = new Date();
     await event.save();
     
-    res.json(event);
+    res.json({
+      ...event.toObject(),
+      ...withEventAccess(event, ownerId)
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2818,7 +3005,7 @@ app.patch('/api/events/:id/archive', authenticateAdmin, async (req, res) => {
     const ownerId = getOwnerIdFromUser(req.user);
     if (ownerId) {
       const owned = await assertOwnedEvent(req.params.id, ownerId);
-      if (!owned) return res.status(404).json({ error: 'Event not found' });
+      if (!owned) return res.status(403).json({ error: 'Only the event owner can archive this event' });
     }
     
     const event = await Event.findByIdAndUpdate(
@@ -2843,7 +3030,7 @@ app.delete('/api/events/:id', authenticateAdmin, async (req, res) => {
     const ownerId = getOwnerIdFromUser(req.user);
     if (ownerId) {
       const owned = await assertOwnedEvent(req.params.id, ownerId);
-      if (!owned) return res.status(404).json({ error: 'Event not found' });
+      if (!owned) return res.status(403).json({ error: 'Only the event owner can delete this event' });
     }
 
     const submissionCount = await Submission.countDocuments({ eventId: req.params.id });
@@ -2859,8 +3046,109 @@ app.delete('/api/events/:id', authenticateAdmin, async (req, res) => {
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
+
+    await EventShare.deleteMany({ eventId: event._id });
     
     res.json({ message: 'Event deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function loadEventShares(eventId) {
+  const shares = await EventShare.find({ eventId })
+    .populate('userId', 'name email status')
+    .sort({ createdAt: 1 });
+  return shares.map(serializeShare);
+}
+
+// List users this event is shared with (owner only)
+app.get('/api/events/:id/shares', authenticateAdmin, async (req, res) => {
+  try {
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    res.json({ shares: await loadEventShares(event._id) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Share event with an existing active user by email (owner only)
+app.post('/api/events/:id/shares', authenticateAdmin, async (req, res) => {
+  try {
+    const ownerId = getOwnerIdFromUser(req.user);
+    if (!ownerId) {
+      return res.status(401).json({ error: 'Sign in required' });
+    }
+
+    const event = await assertOwnedEvent(req.params.id, ownerId);
+    if (!event) {
+      return res.status(403).json({ error: 'Only the event owner can share this event' });
+    }
+
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const target = await User.findOne({ email });
+    if (!target) {
+      return res.status(404).json({ error: 'No account found with that email' });
+    }
+    if (idsMatch(target._id, ownerId)) {
+      return res.status(400).json({ error: 'You already own this event' });
+    }
+    if (target.status === 'invited') {
+      return res.status(400).json({ error: 'That user has been invited but has not activated their account yet' });
+    }
+    if (target.status !== 'active') {
+      return res.status(400).json({ error: 'That account is not active' });
+    }
+
+    try {
+      await EventShare.create({
+        eventId: event._id,
+        userId: target._id,
+        createdBy: ownerId
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return res.status(409).json({ error: 'This event is already shared with that user' });
+      }
+      throw err;
+    }
+
+    res.status(201).json({ shares: await loadEventShares(event._id) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove a collaborator (owner only)
+app.delete('/api/events/:id/shares/:userId', authenticateAdmin, async (req, res) => {
+  try {
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertOwnedEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(403).json({ error: 'Only the event owner can manage sharing' });
+    }
+
+    const removed = await EventShare.findOneAndDelete({
+      eventId: event._id,
+      userId: req.params.userId
+    });
+    if (!removed) {
+      return res.status(404).json({ error: 'Share not found' });
+    }
+
+    res.json({ shares: await loadEventShares(event._id) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2877,7 +3165,7 @@ app.post('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) =>
 
     const ownerId = getOwnerIdFromUser(req.user);
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -2916,6 +3204,30 @@ app.post('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) =>
   }
 });
 
+// Upload a sample sticker image for a preset/suggestion theme
+app.post('/api/events/:id/theme-preview', authenticateAdmin, async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Preview image is required' });
+    }
+
+    const ownerId = getOwnerIdFromUser(req.user);
+    const event = ownerId
+      ? await assertAccessibleEvent(req.params.id, ownerId)
+      : await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const imageUrl = await uploadImageToS3(image, 'theme-previews');
+    res.json({ imageUrl });
+  } catch (error) {
+    console.error('Theme preview upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update branding settings for event (admin only)
 app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
   try {
@@ -2923,7 +3235,7 @@ app.put('/api/events/:id/branding', authenticateAdmin, async (req, res) => {
     const ownerId = getOwnerIdFromUser(req.user);
     
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -2979,7 +3291,7 @@ app.put('/api/events/:id/auto-approve', authenticateAdmin, async (req, res) => {
     const ownerId = getOwnerIdFromUser(req.user);
     
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -3003,7 +3315,7 @@ app.delete('/api/events/:id/branding/logo', authenticateAdmin, async (req, res) 
   try {
     const ownerId = getOwnerIdFromUser(req.user);
     const event = ownerId
-      ? await assertOwnedEvent(req.params.id, ownerId)
+      ? await assertAccessibleEvent(req.params.id, ownerId)
       : await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });

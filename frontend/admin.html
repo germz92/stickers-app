@@ -204,6 +204,7 @@
                     <div class="header-title">
                         <button onclick="backToEvents()" class="btn-back">← Events</button>
                         <h1 id="currentEventName">Event Name</h1>
+                        <span id="currentEventAccessBadge" class="event-badge shared" style="display: none;">Shared</span>
                     </div>
                     <div class="header-controls">
                         <span id="creditsChipQueue" class="credits-chip" title="Generation credits remaining">Credits: —</span>
@@ -629,6 +630,22 @@
                 </div>
 
                 <div class="settings-container">
+                    <div class="settings-section" id="eventSharingSection">
+                        <h3>Event Access</h3>
+                        <div id="eventSharingOwner">
+                            <p class="hint">Share this event with another user by email. They can capture, generate, and manage submissions. Credits still come from your account. Only you can archive, delete, or change who has access.</p>
+                            <form class="event-share-form" onsubmit="return addEventShare(event)">
+                                <input type="email" id="shareEventEmail" placeholder="user@example.com" autocomplete="off" required>
+                                <button type="submit" class="btn-primary btn-sm">Share</button>
+                            </form>
+                            <div id="eventSharesStatus" class="status-message"></div>
+                            <div id="eventSharesList" class="event-shares-list"></div>
+                        </div>
+                        <div id="eventSharingCollaborator" style="display: none;">
+                            <p class="hint">This event was shared with you by <strong id="eventOwnerLabel">another user</strong>. You can capture and generate using their credits. You cannot archive, delete, or change who has access.</p>
+                        </div>
+                    </div>
+
                     <!-- Prompt Settings -->
                     <div class="settings-section">
                         <h3>Prompt Settings</h3>
@@ -681,7 +698,7 @@
 
                         <!-- Prompt Suggestions -->
                         <div id="promptSuggestionsSettings" class="field-settings" style="display: none;">
-                            <p class="hint">Users can click suggestions or type their own prompt</p>
+                            <p class="hint">Users can pick a look or type their own theme. Prompt values stay hidden on the capture page.</p>
                             <div class="presets-list" id="promptSuggestionsList"></div>
                             <button onclick="addPromptSuggestion()" class="btn-secondary btn-sm">Add Suggestion</button>
                         </div>

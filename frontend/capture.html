@@ -30,7 +30,7 @@
             <header>
                 <div class="container">
                     <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
-                    <h1>Select Your Event</h1>
+                    <h1>Choose your event</h1>
                     <button onclick="backToAdmin()" class="btn-logout" title="Back to Admin">Admin</button>
                 </div>
             </header>
@@ -55,7 +55,7 @@
                 <div class="camera-overlay">
                     <div class="camera-header">
                         <img src="images/header-image.png" alt="Logo" class="logo-small" onerror="this.style.display='none'">
-                        <h2>Take Your Photo</h2>
+                        <h2>Step in and smile</h2>
                     </div>
                     
                     <div class="camera-frame">
@@ -67,13 +67,17 @@
                                          stroke="rgba(0, 229, 255, 0.7)" 
                                          stroke-width="5"/>
                             </svg>
-                            <div class="guide-text">Position your face here</div>
+                            <div class="guide-text">Center your face</div>
                         </div>
+                    </div>
+                    
+                    <div id="countdownOverlay" class="countdown-overlay" style="display: none;" aria-hidden="true">
+                        <span id="countdownNumber">3</span>
                     </div>
                     
                     <div class="camera-controls">
                         <button id="captureBtn" onclick="capturePhoto()" class="btn-capture">
-                            <span>Capture</span>
+                            <span>Take Photo</span>
                         </button>
                     </div>
                 </div>
@@ -85,7 +89,7 @@
             <header>
                 <div class="container">
                     <img src="images/header-image.png" alt="Logo" class="logo" onerror="this.style.display='none'">
-                    <h1>Complete Your Details</h1>
+                    <h1 id="formStepTitle">Pick your look</h1>
                     <button onclick="backToAdmin()" class="btn-logout" title="Back to Admin">Admin</button>
                 </div>
             </header>
@@ -95,14 +99,55 @@
                     <div class="photo-preview">
                         <img id="photoPreview" alt="Your photo">
                         <button onclick="retakePhoto()" class="btn-retake">
-                            Retake
+                            Retake Photo
                         </button>
                     </div>
 
-                    <div class="form-section">
+                    <div class="form-section" id="themeSection">
+                        <div class="form-group">
+                            <label for="promptInput">
+                                <strong>What should you be?</strong>
+                                <span class="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="promptInput" 
+                                placeholder="Try astronaut, superhero, chef..."
+                                maxlength="100"
+                            >
+                            <div class="hint">
+                                Pick a costume, job, or scene
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="customTextInput">
+                                <strong>Add a short message</strong>
+                                <span class="optional">(Optional)</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="customTextInput" 
+                                placeholder="Hello, Wow, your name..."
+                            >
+                        </div>
+
+                        <button 
+                            id="continueThemeBtn" 
+                            onclick="startGenerationAndContinue()" 
+                            class="btn-submit"
+                            disabled
+                        >
+                            Create My Stickers
+                        </button>
+                    </div>
+
+                    <div class="form-section" id="detailsSection" style="display: none;">
+                        <p class="generating-hint">Add your name so we can find your prints. Email or phone is optional if you want a digital copy.</p>
+
                         <div class="form-group" id="nameGroup">
                             <label for="nameInput">
-                                <strong>Your Name</strong>
+                                <strong>Your name</strong>
                                 <span class="required">*</span>
                             </label>
                             <input 
@@ -110,7 +155,6 @@
                                 id="nameInput" 
                                 placeholder="Enter your name"
                                 maxlength="50"
-                                autofocus
                             >
                         </div>
 
@@ -169,12 +213,12 @@
                         <div class="form-group">
                             <label for="emailInput">
                                 <strong>Email</strong>
-                                <span class="optional">(Optional - for digital delivery)</span>
+                                <span class="optional">(Optional)</span>
                             </label>
                             <input 
                                 type="email" 
                                 id="emailInput" 
-                                placeholder="your@email.com"
+                                placeholder="For a digital copy"
                                 maxlength="100"
                             >
                         </div>
@@ -182,41 +226,13 @@
                         <div class="form-group">
                             <label for="phoneInput">
                                 <strong>Phone</strong>
-                                <span class="optional">(Optional - for digital delivery)</span>
+                                <span class="optional">(Optional)</span>
                             </label>
                             <input 
                                 type="tel" 
                                 id="phoneInput" 
-                                placeholder="(555) 123-4567"
+                                placeholder="For a text with your stickers"
                                 maxlength="20"
-                            >
-                        </div>
-
-                        <div class="form-group">
-                            <label for="promptInput">
-                                <strong>Sticker Theme</strong>
-                                <span class="required">*</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                id="promptInput" 
-                                placeholder="e.g., astronaut, superhero, chef..."
-                                maxlength="100"
-                            >
-                            <div class="hint">
-                                Choose an outfit, costume, profession, or activity
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="customTextInput">
-                                <strong>Custom Text</strong>
-                                <span class="optional">(Optional)</span>
-                            </label>
-                            <input 
-                                type="text" 
-                                id="customTextInput" 
-                                placeholder="e.g., Wow!, Hello..."
                             >
                         </div>
 
@@ -226,7 +242,7 @@
                             class="btn-submit"
                             disabled
                         >
-                            Submit
+                            Finish
                         </button>
                     </div>
                 </div>
@@ -238,15 +254,15 @@
             <div class="thank-you-container">
                 <img src="images/header-image.png" alt="Logo" class="logo-large" onerror="this.style.display='none'">
                 <div class="thank-you-icon">✓</div>
-                <h1>Thank You</h1>
+                <h1>You're all set!</h1>
                 <p class="thank-you-message">
-                    Your submission has been received successfully.
+                    Your stickers are on the way.
                 </p>
                 <p class="instruction">
-                    Please see the <strong>booth attendant</strong> to get your stickers printed.
+                    They will be printed shortly. If you added an email or phone, we'll send a digital copy too.
                 </p>
                 <button onclick="startOver()" class="btn-start-over">
-                    Take Another Photo
+                    Next Guest
                 </button>
             </div>
         </div>

@@ -2300,6 +2300,54 @@ footer {
     font-size: 0.85em;
 }
 
+.preset-preview {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preset-preview-thumb {
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preset-preview-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.preset-preview-placeholder {
+    color: #666;
+    font-size: 0.7em;
+    text-align: center;
+    padding: 4px;
+    line-height: 1.3;
+}
+
+.preset-preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.preset-preview-actions .btn-secondary {
+    width: auto;
+}
+
 .status-message {
     padding: 15px;
     border-radius: 4px;
@@ -2788,6 +2836,69 @@ footer {
     background: rgba(0, 229, 255, 0.15);
     color: #00e5ff;
     border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+.event-badge.shared {
+    background: rgba(171, 71, 188, 0.18);
+    color: #ce93d8;
+    border: 1px solid rgba(171, 71, 188, 0.4);
+}
+
+.event-share-form {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+}
+
+.event-share-form input[type="email"] {
+    flex: 1;
+    min-width: 220px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #fff;
+}
+
+.event-shares-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.event-share-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+.event-share-row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.event-share-row-info strong {
+    color: #fff;
+}
+
+.event-share-row-info span {
+    color: #888;
+    font-size: 0.85em;
+}
+
+.event-shares-empty {
+    color: #888;
+    font-size: 0.9em;
+    margin: 4px 0 0;
 }
 
 .settings-section-disabled .form-group,

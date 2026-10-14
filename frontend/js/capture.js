@@ -7,6 +7,10 @@ let token = null;
 let tokenExpiryTime = null;
 let tokenCheckInterval = null;
 let selectedEvent = null;
+let pendingSubmissionId = null;
+let countdownTimer = null;
+let countdownActive = false;
+let selectedThemePrompt = '';
 
 // Custom Alert Function
 function customAlert(message) {
@@ -191,8 +195,8 @@ function displayEvents(events) {
     if (activeEvents.length === 0) {
         container.innerHTML = `
             <div class="no-events-message">
-                <p>No active events available.</p>
-                <p>Please check back later or contact the event organizer.</p>
+                <p>No events are open right now.</p>
+                <p>Please try again in a moment.</p>
             </div>
         `;
         return;
@@ -211,8 +215,9 @@ function displayEvents(events) {
             <div class="event-card" onclick="selectEvent('${event._id}')">
                 <h3>${escapeHtml(event.name)}</h3>
                 <div class="event-date">${formattedDate}</div>
+                ${event.access === 'shared' ? '<div class="event-shared-label">Shared with you</div>' : ''}
                 ${event.description ? `<p class="event-description">${escapeHtml(event.description)}</p>` : ''}
-                <button class="btn-select">Select This Event</button>
+                <button class="btn-select">Start</button>
             </div>
         `;
     }).join('');
@@ -272,6 +277,7 @@ async function startCamera() {
         
         video.srcObject = stream;
         
+        resetCountdown();
         // Show camera step
         showStep('camera');
     } catch (error) {
@@ -287,10 +293,66 @@ async function startCamera() {
     }
 }
 
-// Capture photo
+function resetCountdown() {
+    countdownActive = false;
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+    const overlay = document.getElementById('countdownOverlay');
+    if (overlay) overlay.style.display = 'none';
+    const btn = document.getElementById('captureBtn');
+    if (btn) {
+        btn.disabled = false;
+        const label = btn.querySelector('span');
+        if (label) label.textContent = 'Take Photo';
+    }
+}
+
+// Capture photo — 3 second countdown, then snap
 function capturePhoto() {
-    if (!video) return;
-    
+    if (!video || countdownActive) return;
+
+    const overlay = document.getElementById('countdownOverlay');
+    const numberEl = document.getElementById('countdownNumber');
+    const btn = document.getElementById('captureBtn');
+    let count = 3;
+
+    countdownActive = true;
+    if (btn) btn.disabled = true;
+    if (overlay) overlay.style.display = 'flex';
+    if (numberEl) {
+        numberEl.textContent = String(count);
+        numberEl.classList.remove('tick');
+        void numberEl.offsetWidth;
+        numberEl.classList.add('tick');
+    }
+
+    countdownTimer = setInterval(() => {
+        count -= 1;
+        if (count <= 0) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+            countdownActive = false;
+            if (overlay) overlay.style.display = 'none';
+            takePhoto();
+            return;
+        }
+        if (numberEl) {
+            numberEl.textContent = String(count);
+            numberEl.classList.remove('tick');
+            void numberEl.offsetWidth;
+            numberEl.classList.add('tick');
+        }
+    }, 1000);
+}
+
+function takePhoto() {
+    if (!video) {
+        resetCountdown();
+        return;
+    }
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     
@@ -310,16 +372,18 @@ function capturePhoto() {
     // Stop camera
     stopCamera();
     
-    // Show form step with photo preview
+    // Show theme step with photo preview
     document.getElementById('photoPreview').src = photoData;
-    showStep('form');
+    showFormPhase('theme');
     
     // Load capture settings and adapt form
     loadCaptureSettings();
     
-    // Focus on name input
     setTimeout(() => {
-        document.getElementById('nameInput').focus();
+        const promptInput = document.getElementById('promptInput');
+        if (promptInput && promptInput.offsetParent !== null && !promptInput.readOnly) {
+            promptInput.focus();
+        }
     }, 100);
 }
 
@@ -351,10 +415,17 @@ function applyCaptureSettings(settings) {
     const customTextGroup = document.querySelector('#customTextInput').closest('.form-group');
     const promptInput = document.getElementById('promptInput');
     const customTextInput = document.getElementById('customTextInput');
-    const submitBtn = document.getElementById('submitBtn');
+    const continueBtn = document.getElementById('continueThemeBtn');
+    selectedThemePrompt = '';
     
     // Remove any existing preset selections
     document.querySelectorAll('.preset-selection').forEach(el => el.remove());
+
+    const promptLabel = promptGroup.querySelector('label strong');
+    const promptHint = promptGroup.querySelector('.hint');
+    if (promptLabel) promptLabel.textContent = 'What should you be?';
+    if (promptHint) promptHint.textContent = 'Pick a costume, job, or scene';
+    promptInput.placeholder = 'Try astronaut, superhero, chef...';
     
     // Handle Prompt Settings
     if (settings.promptMode === 'locked') {
@@ -368,11 +439,11 @@ function applyCaptureSettings(settings) {
         themeContainer.className = 'preset-selection locked-info';
         themeContainer.innerHTML = `
             <div class="form-group">
-                <label><strong>Theme</strong></label>
-                <div class="locked-value">${escapeHtml(settings.lockedPromptTitle || 'Locked Theme')}</div>
+                <label><strong>Your look</strong></label>
+                <div class="locked-value">${escapeHtml(settings.lockedPromptTitle || 'Today\'s theme')}</div>
             </div>
         `;
-        submitBtn.parentElement.insertBefore(themeContainer, submitBtn);
+        continueBtn.parentElement.insertBefore(themeContainer, continueBtn);
         
     } else if (settings.promptMode === 'presets') {
         // Show prompt presets
@@ -382,50 +453,45 @@ function applyCaptureSettings(settings) {
         presetsContainer.className = 'preset-selection';
         presetsContainer.innerHTML = `
             <div class="form-group">
-                <label><strong>Select Prompt</strong> <span class="required">*</span></label>
+                <label><strong>Tap a look</strong> <span class="required">*</span></label>
                 <div class="preset-buttons" id="promptPresetButtons"></div>
             </div>
         `;
         
-        submitBtn.parentElement.insertBefore(presetsContainer, submitBtn);
+        continueBtn.parentElement.insertBefore(presetsContainer, continueBtn);
         
         const buttonsContainer = document.getElementById('promptPresetButtons');
-        settings.promptPresets.forEach((preset, index) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'preset-btn';
-            button.textContent = preset.name;
-            button.onclick = () => selectPromptPreset(index, settings.promptPresets);
-            buttonsContainer.appendChild(button);
+        (settings.promptPresets || []).forEach((preset, index) => {
+            appendThemeChoiceButton(buttonsContainer, preset, 'preset-btn', () => {
+                selectPromptPreset(index, settings.promptPresets);
+            });
         });
         
     } else if (settings.promptMode === 'suggestions') {
-        // Show suggestions + keep input visible
+        selectedThemePrompt = '';
         promptGroup.style.display = 'flex';
         promptInput.readOnly = false;
         promptInput.value = '';
+        promptInput.placeholder = 'Or type your own look';
+        if (promptLabel) promptLabel.textContent = 'Or type your own';
+        if (promptHint) promptHint.textContent = 'Skip this if you tapped a look above.';
         
         if (settings.promptPresets && settings.promptPresets.length > 0) {
             const suggestionsContainer = document.createElement('div');
             suggestionsContainer.className = 'preset-selection';
             suggestionsContainer.innerHTML = `
                 <div class="form-group">
-                    <label><strong>Quick Suggestions</strong></label>
+                    <label><strong>Tap a look</strong></label>
                     <div class="preset-buttons suggestions" id="promptSuggestionButtons"></div>
                 </div>
             `;
-            
-            // Insert after prompt input
-            promptGroup.parentElement.insertBefore(suggestionsContainer, promptGroup.nextSibling);
+            promptGroup.parentElement.insertBefore(suggestionsContainer, promptGroup);
             
             const buttonsContainer = document.getElementById('promptSuggestionButtons');
             settings.promptPresets.forEach((preset, index) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'preset-btn suggestion-btn';
-                button.textContent = preset.name;
-                button.onclick = () => selectPromptSuggestion(index, settings.promptPresets);
-                buttonsContainer.appendChild(button);
+                appendThemeChoiceButton(buttonsContainer, preset, 'preset-btn suggestion-btn', () => {
+                    selectPromptSuggestion(index, settings.promptPresets);
+                });
             });
         }
         
@@ -459,11 +525,11 @@ function applyCaptureSettings(settings) {
         lockedContainer.className = 'preset-selection locked-info';
         lockedContainer.innerHTML = `
             <div class="form-group">
-                <label><strong>Custom Text</strong></label>
+                <label><strong>Your message</strong></label>
                 <div class="locked-value">${escapeHtml(settings.lockedCustomTextValue || '')}</div>
             </div>
         `;
-        submitBtn.parentElement.insertBefore(lockedContainer, submitBtn);
+        continueBtn.parentElement.insertBefore(lockedContainer, continueBtn);
         
     } else if (settings.customTextMode === 'presets') {
         // Show custom text presets
@@ -473,12 +539,12 @@ function applyCaptureSettings(settings) {
         presetsContainer.className = 'preset-selection';
         presetsContainer.innerHTML = `
             <div class="form-group">
-                <label><strong>Select Text</strong> <span class="required">*</span></label>
+                <label><strong>Tap a message</strong> <span class="required">*</span></label>
                 <div class="preset-buttons" id="customTextPresetButtons"></div>
             </div>
         `;
         
-        submitBtn.parentElement.insertBefore(presetsContainer, submitBtn);
+        continueBtn.parentElement.insertBefore(presetsContainer, continueBtn);
         
         const buttonsContainer = document.getElementById('customTextPresetButtons');
         settings.customTextPresets.forEach((preset, index) => {
@@ -501,7 +567,7 @@ function applyCaptureSettings(settings) {
             suggestionsContainer.className = 'preset-selection';
             suggestionsContainer.innerHTML = `
                 <div class="form-group">
-                    <label><strong>Quick Suggestions</strong></label>
+                    <label><strong>Or tap a message</strong></label>
                     <div class="preset-buttons suggestions" id="customTextSuggestionButtons"></div>
                 </div>
             `;
@@ -530,8 +596,8 @@ function applyCaptureSettings(settings) {
     // Badge Mode: swap single name field for badge fields, hide custom text entirely
     applyBadgeFieldVisibility();
 
-    // Re-validate form
-    validateForm();
+    validateTheme();
+    validateDetails();
 }
 
 // Show/hide badge-specific fields based on the selected event's badgeMode
@@ -563,13 +629,47 @@ function isBadgeMode() {
     return !!(selectedEvent && selectedEvent.badgeMode === true);
 }
 
+function appendThemeChoiceButton(container, preset, className, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    if (preset.imageUrl) {
+        button.classList.add('has-preview');
+        const img = document.createElement('img');
+        img.src = preset.imageUrl;
+        img.alt = preset.name || 'Theme preview';
+        img.className = 'theme-preview-img';
+        button.appendChild(img);
+    }
+    const label = document.createElement('span');
+    label.className = 'theme-choice-label';
+    label.textContent = preset.name || 'Theme';
+    button.appendChild(label);
+    button.addEventListener('click', onClick);
+    container.appendChild(button);
+}
+
+function getThemePrompt() {
+    const typed = document.getElementById('promptInput')?.value.trim() || '';
+    if (typed) return typed;
+    return (selectedThemePrompt || '').trim();
+}
+
+function clearSelectedSuggestion() {
+    selectedThemePrompt = '';
+    document.querySelectorAll('#promptSuggestionButtons .preset-btn').forEach((btn) => {
+        btn.classList.remove('selected');
+    });
+}
+
 // Select prompt preset
 function selectPromptPreset(index, presets) {
     document.querySelectorAll('#promptPresetButtons .preset-btn').forEach(btn => btn.classList.remove('selected'));
-    event.target.classList.add('selected');
+    const buttons = document.querySelectorAll('#promptPresetButtons .preset-btn');
+    if (buttons[index]) buttons[index].classList.add('selected');
     
     document.getElementById('promptInput').value = presets[index].value;
-    validateForm();
+    validateTheme();
 }
 
 // Select custom text preset
@@ -578,15 +678,20 @@ function selectCustomTextPreset(index, presets) {
     event.target.classList.add('selected');
     
     document.getElementById('customTextInput').value = presets[index].value;
-    validateForm();
+    validateTheme();
 }
 
-// Select prompt suggestion (fills input but doesn't lock it)
+// Select prompt suggestion without revealing the generation prompt
 function selectPromptSuggestion(index, presets) {
     const promptInput = document.getElementById('promptInput');
-    promptInput.value = presets[index].value;
-    promptInput.focus();
-    validateForm();
+    if (promptInput) promptInput.value = '';
+    selectedThemePrompt = presets[index].value || '';
+    document.querySelectorAll('#promptSuggestionButtons .preset-btn').forEach((btn) => {
+        btn.classList.remove('selected');
+    });
+    const buttons = document.querySelectorAll('#promptSuggestionButtons .preset-btn');
+    if (buttons[index]) buttons[index].classList.add('selected');
+    validateTheme();
 }
 
 // Select custom text suggestion (fills input but doesn't lock it)
@@ -594,7 +699,7 @@ function selectCustomTextSuggestion(index, presets) {
     const customTextInput = document.getElementById('customTextInput');
     customTextInput.value = presets[index].value;
     customTextInput.focus();
-    validateForm();
+    validateTheme();
 }
 
 // Escape HTML for safe display
@@ -604,11 +709,9 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Retake photo
-function retakePhoto() {
-    photoData = null;
-    
-    // Clear form
+function resetCaptureForm() {
+    pendingSubmissionId = null;
+    selectedThemePrompt = '';
     document.getElementById('nameInput').value = '';
     document.getElementById('firstNameInput').value = '';
     document.getElementById('lastNameInput').value = '';
@@ -618,17 +721,31 @@ function retakePhoto() {
     document.getElementById('phoneInput').value = '';
     document.getElementById('promptInput').value = '';
     document.getElementById('customTextInput').value = '';
-    
+
+    const continueBtn = document.getElementById('continueThemeBtn');
+    if (continueBtn) {
+        continueBtn.disabled = true;
+        continueBtn.textContent = 'Create My Stickers';
+    }
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Submit';
-    
-    // Restart camera
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Finish';
+    }
+    const retakeBtn = document.querySelector('.btn-retake');
+    if (retakeBtn) retakeBtn.style.display = '';
+}
+
+// Retake photo
+function retakePhoto() {
+    photoData = null;
+    resetCaptureForm();
     startCamera();
 }
 
 // Stop camera
 function stopCamera() {
+    resetCountdown();
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
@@ -655,16 +772,37 @@ function showStep(step) {
     }
 }
 
-// Validate form
-function validateForm() {
-    const prompt = document.getElementById('promptInput').value.trim();
-    
-    // Prompt is always required (either free entry, locked, or selected from presets)
-    const promptValid = !!prompt;
-    
+function showFormPhase(phase) {
+    showStep('form');
+    const themeSection = document.getElementById('themeSection');
+    const detailsSection = document.getElementById('detailsSection');
+    const title = document.getElementById('formStepTitle');
+    const retakeBtn = document.querySelector('.btn-retake');
+
+    if (themeSection) themeSection.style.display = phase === 'theme' ? 'flex' : 'none';
+    if (detailsSection) detailsSection.style.display = phase === 'details' ? 'flex' : 'none';
+    if (title) title.textContent = phase === 'theme' ? 'Pick your look' : 'Almost done';
+    if (retakeBtn) retakeBtn.style.display = phase === 'theme' ? '' : 'none';
+}
+
+function isCustomTextRequired() {
+    const settings = selectedEvent?.captureSettings || {};
+    if (isBadgeMode() || settings.customTextDisabled) return false;
+    return settings.customTextMode === 'presets';
+}
+
+function validateTheme() {
+    const prompt = getThemePrompt();
+    const customText = document.getElementById('customTextInput')?.value.trim();
+    const continueBtn = document.getElementById('continueThemeBtn');
+    if (!continueBtn) return;
+    const customOk = !isCustomTextRequired() || !!customText;
+    continueBtn.disabled = !(prompt && customOk && photoData && !pendingSubmissionId);
+}
+
+function validateDetails() {
     let fieldsValid;
     if (isBadgeMode()) {
-        // Badge mode requires first name, last name, job title, and company
         const firstName = document.getElementById('firstNameInput').value.trim();
         const lastName = document.getElementById('lastNameInput').value.trim();
         const jobTitle = document.getElementById('jobTitleInput').value.trim();
@@ -673,20 +811,86 @@ function validateForm() {
     } else {
         fieldsValid = !!document.getElementById('nameInput').value.trim();
     }
-    
+
     const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = !(fieldsValid && promptValid && photoData);
+    if (submitBtn) {
+        submitBtn.disabled = !(fieldsValid && pendingSubmissionId);
+    }
 }
 
-// Add event listeners for form validation
-document.getElementById('nameInput')?.addEventListener('input', validateForm);
-document.getElementById('promptInput')?.addEventListener('input', validateForm);
-document.getElementById('firstNameInput')?.addEventListener('input', validateForm);
-document.getElementById('lastNameInput')?.addEventListener('input', validateForm);
-document.getElementById('jobTitleInput')?.addEventListener('input', validateForm);
-document.getElementById('companyInput')?.addEventListener('input', validateForm);
+document.getElementById('nameInput')?.addEventListener('input', validateDetails);
+document.getElementById('promptInput')?.addEventListener('input', () => {
+    if (document.getElementById('promptInput').value.trim()) {
+        clearSelectedSuggestion();
+    }
+    validateTheme();
+});
+document.getElementById('customTextInput')?.addEventListener('input', validateTheme);
+document.getElementById('firstNameInput')?.addEventListener('input', validateDetails);
+document.getElementById('lastNameInput')?.addEventListener('input', validateDetails);
+document.getElementById('jobTitleInput')?.addEventListener('input', validateDetails);
+document.getElementById('companyInput')?.addEventListener('input', validateDetails);
 
-// Submit capture
+async function startGenerationAndContinue() {
+    const badgeMode = isBadgeMode();
+    const prompt = getThemePrompt();
+    const customText = badgeMode ? '' : document.getElementById('customTextInput').value.trim();
+
+    if (!prompt || !photoData) {
+        await customAlert('Tap a look or type one first.');
+        return;
+    }
+    if (isCustomTextRequired() && !customText) {
+        await customAlert('Tap a message first.');
+        return;
+    }
+    if (!selectedEvent) {
+        await customAlert('No event selected. Please go back and select an event.');
+        return;
+    }
+
+    const continueBtn = document.getElementById('continueThemeBtn');
+    continueBtn.disabled = true;
+    continueBtn.textContent = 'Creating stickers...';
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/submissions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                eventId: selectedEvent._id,
+                detailsPending: true,
+                name: 'Guest',
+                photo: photoData,
+                prompt,
+                customText
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Could not start generation');
+        }
+
+        pendingSubmissionId = data.submissionId;
+        showFormPhase('details');
+        validateDetails();
+        setTimeout(() => {
+            const focusId = isBadgeMode() ? 'firstNameInput' : 'nameInput';
+            document.getElementById(focusId)?.focus();
+        }, 100);
+    } catch (error) {
+        console.error('Early generation error:', error);
+        await customAlert(`Error: ${error.message}`);
+        continueBtn.disabled = false;
+        continueBtn.textContent = 'Create My Stickers';
+        validateTheme();
+    }
+}
+
 async function submitCapture() {
     const badgeMode = isBadgeMode();
     const firstName = document.getElementById('firstNameInput').value.trim();
@@ -698,85 +902,59 @@ async function submitCapture() {
         : document.getElementById('nameInput').value.trim();
     const email = document.getElementById('emailInput').value.trim();
     const phone = document.getElementById('phoneInput').value.trim();
-    const prompt = document.getElementById('promptInput').value.trim();
-    const customText = badgeMode ? '' : document.getElementById('customTextInput').value.trim();
-    
-    if (!name || !prompt || !photoData) {
-        await customAlert('Please fill in all required fields');
-        return;
-    }
 
-    if (badgeMode && (!firstName || !lastName || !jobTitle || !company)) {
-        await customAlert('Please fill in first name, last name, job title, and company');
+    if (!pendingSubmissionId) {
+        await customAlert('Please pick your look first.');
         return;
     }
-    
-    if (!selectedEvent) {
-        await customAlert('No event selected. Please go back and select an event.');
+    if (!name) {
+        await customAlert('Please enter your name.');
+        return;
+    }
+    if (badgeMode && (!firstName || !lastName || !jobTitle || !company)) {
+        await customAlert('Please enter your first name, last name, job title, and company.');
         return;
     }
 
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Submitting...';
+    submitBtn.textContent = 'Saving...';
 
     try {
-        const response = await fetch(`${API_BASE_URL}/submissions`, {
-            method: 'POST',
+        const response = await fetch(`${API_BASE_URL}/submissions/${pendingSubmissionId}/attendee`, {
+            method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-                eventId: selectedEvent._id,
                 name,
                 firstName: badgeMode ? firstName : '',
                 lastName: badgeMode ? lastName : '',
                 jobTitle: badgeMode ? jobTitle : '',
                 company: badgeMode ? company : '',
                 email,
-                phone,
-                photo: photoData,
-                prompt,
-                customText
+                phone
             })
         });
 
         const data = await response.json();
-
-        if (response.ok) {
-            // Show thank you page
-            showStep('thankyou');
-        } else {
-            throw new Error(data.error || 'Submission failed');
+        if (!response.ok) {
+            throw new Error(data.error || 'Could not save details');
         }
+
+        showStep('thankyou');
     } catch (error) {
-        console.error('Submission error:', error);
+        console.error('Details save error:', error);
         await customAlert(`Error: ${error.message}`);
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Submit';
+        submitBtn.textContent = 'Finish';
     }
 }
 
-// Start over - go back to camera for same event
 function startOver() {
-    // Reset form data but keep the selected event
     photoData = null;
-    document.getElementById('nameInput').value = '';
-    document.getElementById('firstNameInput').value = '';
-    document.getElementById('lastNameInput').value = '';
-    document.getElementById('jobTitleInput').value = '';
-    document.getElementById('companyInput').value = '';
-    document.getElementById('emailInput').value = '';
-    document.getElementById('phoneInput').value = '';
-    document.getElementById('promptInput').value = '';
-    document.getElementById('customTextInput').value = '';
-    
-    const submitBtn = document.getElementById('submitBtn');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Submit';
-    
-    // Go back to camera for same event
+    resetCaptureForm();
     startCamera();
 }
 

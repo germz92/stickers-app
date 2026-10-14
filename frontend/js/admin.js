@@ -1230,6 +1230,29 @@ async function loadEvents() {
 }
 
 // Display events as cards
+function isEventOwner(event = currentEvent) {
+    if (!event) return false;
+    if (event.access === 'owner' || event.isOwner === true) return true;
+    if (event.access === 'shared' || event.isOwner === false) return false;
+    const ownerId = event.ownerId && event.ownerId._id ? event.ownerId._id : event.ownerId;
+    return Boolean(ownerId && currentUser?._id && String(ownerId) === String(currentUser._id));
+}
+
+function eventOwnerLabel(event = currentEvent) {
+    const owner = event?.ownerId;
+    if (owner && typeof owner === 'object') {
+        return owner.name || owner.email || 'another user';
+    }
+    return 'another user';
+}
+
+function updateCurrentEventAccessBadge() {
+    const badge = document.getElementById('currentEventAccessBadge');
+    if (!badge) return;
+    const shared = Boolean(currentEvent) && !isEventOwner(currentEvent);
+    badge.style.display = shared ? '' : 'none';
+}
+
 function displayEvents() {
     const container = document.getElementById('eventsList');
     
@@ -1251,6 +1274,7 @@ function displayEvents() {
             day: 'numeric' 
         });
         const isArchived = event.isArchived;
+        const owned = isEventOwner(event);
         
         return `
             <div class="event-card ${isArchived ? 'archived' : ''}" onclick="selectEvent('${event._id}')">
@@ -1258,10 +1282,12 @@ function displayEvents() {
                     <h3>${escapeHtml(event.name)}</h3>
                     <div class="event-card-badges">
                         ${event.badgeMode ? '<span class="event-badge badge-mode">Badge</span>' : ''}
+                        ${owned ? '' : '<span class="event-badge shared">Shared</span>'}
                         ${isArchived ? '<span class="event-badge archived">Archived</span>' : '<span class="event-badge active">Active</span>'}
                     </div>
                 </div>
                 <div class="event-card-date">${formattedDate}</div>
+                ${!owned ? `<p class="event-card-description">Shared by ${escapeHtml(eventOwnerLabel(event))}</p>` : ''}
                 ${event.description ? `<p class="event-card-description">${escapeHtml(event.description)}</p>` : ''}
                 <div class="event-card-stats">
                     <div class="event-stat">
@@ -1273,6 +1299,7 @@ function displayEvents() {
                         <span class="event-stat-label">Total</span>
                     </div>
                 </div>
+                ${owned ? `
                 <div class="event-card-actions" onclick="event.stopPropagation()">
                     <button onclick="openEditEventModal('${event._id}')" class="btn-secondary btn-sm">Edit</button>
                     ${isArchived 
@@ -1280,7 +1307,7 @@ function displayEvents() {
                         : `<button onclick="archiveEvent('${event._id}')" class="btn-warning btn-sm">Archive</button>`
                     }
                     <button onclick="deleteEvent('${event._id}')" class="btn-danger btn-sm">Delete</button>
-                </div>
+                </div>` : ''}
             </div>
         `;
     }).join('');
@@ -1298,6 +1325,7 @@ async function selectEvent(eventId) {
     
     // Update header with event name
     document.getElementById('currentEventName').textContent = event.name;
+    updateCurrentEventAccessBadge();
     
     // Update auto-approve toggle state
     const autoApproveToggle = document.getElementById('autoApproveToggle');
@@ -1389,7 +1417,7 @@ async function createNewEvent() {
 // Open edit event modal
 function openEditEventModal(eventId) {
     const event = allEvents.find(e => e._id === eventId);
-    if (!event) return;
+    if (!event || !isEventOwner(event)) return;
     
     document.getElementById('editEventId').value = event._id;
     document.getElementById('editEventName').value = event.name;
@@ -1437,8 +1465,9 @@ async function saveEventChanges() {
             // Update current event if it's the one being edited
             if (currentEvent && currentEvent._id === eventId) {
                 const updatedEvent = await response.json();
-                currentEvent = updatedEvent;
+                currentEvent = { ...currentEvent, ...updatedEvent };
                 document.getElementById('currentEventName').textContent = updatedEvent.name;
+                updateCurrentEventAccessBadge();
             }
             
             showStatus('Event updated successfully!', 'success');
@@ -1456,6 +1485,8 @@ async function saveEventChanges() {
 
 // Archive event
 async function archiveEvent(eventId) {
+    const event = allEvents.find(e => e._id === eventId);
+    if (!event || !isEventOwner(event)) return;
     if (!await customConfirm('Archive this event? It will be hidden from the capture page.')) return;
     
     try {
@@ -1482,6 +1513,8 @@ async function archiveEvent(eventId) {
 
 // Unarchive event
 async function unarchiveEvent(eventId) {
+    const event = allEvents.find(e => e._id === eventId);
+    if (!event || !isEventOwner(event)) return;
     try {
         const response = await fetch(`${API_BASE_URL}/events/${eventId}/archive`, {
             method: 'PATCH',
@@ -1506,6 +1539,8 @@ async function unarchiveEvent(eventId) {
 
 // Delete event
 async function deleteEvent(eventId) {
+    const event = allEvents.find(e => e._id === eventId);
+    if (!event || !isEventOwner(event)) return;
     if (!await customConfirm('Delete this event? This can only be done if there are no submissions.')) return;
     
     try {
@@ -3253,8 +3288,129 @@ async function loadCaptureSettings() {
             customTextMode: 'free'
         };
         displayCaptureSettings();
+        updateEventSharingView();
     } catch (error) {
         console.error('Error loading capture settings:', error);
+    }
+}
+
+function setEventSharesStatus(message, type = '') {
+    const el = document.getElementById('eventSharesStatus');
+    if (!el) return;
+    if (!message) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    el.textContent = message;
+    el.className = `status-message ${type}`.trim();
+    el.style.display = 'block';
+}
+
+function updateEventSharingView() {
+    const ownerEl = document.getElementById('eventSharingOwner');
+    const collabEl = document.getElementById('eventSharingCollaborator');
+    if (!ownerEl || !collabEl) return;
+
+    const owned = isEventOwner(currentEvent);
+    ownerEl.style.display = owned ? '' : 'none';
+    collabEl.style.display = owned ? 'none' : '';
+
+    const label = document.getElementById('eventOwnerLabel');
+    if (label) label.textContent = eventOwnerLabel(currentEvent);
+
+    if (owned) {
+        loadEventShares();
+    }
+}
+
+function renderEventShares(shares) {
+    const list = document.getElementById('eventSharesList');
+    if (!list) return;
+    if (!shares || shares.length === 0) {
+        list.innerHTML = '<p class="event-shares-empty">Not shared with anyone yet.</p>';
+        return;
+    }
+    list.innerHTML = shares.map((share) => `
+        <div class="event-share-row">
+            <div class="event-share-row-info">
+                <strong>${escapeHtml(share.name || share.email || 'User')}</strong>
+                <span>${escapeHtml(share.email || '')}</span>
+            </div>
+            <button type="button" class="btn-danger btn-sm" onclick="removeEventShare('${share.userId}')">Remove</button>
+        </div>
+    `).join('');
+}
+
+async function loadEventShares() {
+    if (!currentEvent || !isEventOwner(currentEvent)) return;
+    const list = document.getElementById('eventSharesList');
+    if (list) list.innerHTML = '<p class="event-shares-empty">Loading…</p>';
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/shares`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load shares');
+        }
+        renderEventShares(data.shares || []);
+    } catch (error) {
+        console.error('Error loading event shares:', error);
+        if (list) list.innerHTML = `<p class="event-shares-empty">${escapeHtml(error.message)}</p>`;
+    }
+}
+
+async function addEventShare(event) {
+    event.preventDefault();
+    if (!currentEvent || !isEventOwner(currentEvent)) return false;
+    const input = document.getElementById('shareEventEmail');
+    const email = (input?.value || '').trim();
+    if (!email) {
+        setEventSharesStatus('Enter an email address.', 'error');
+        return false;
+    }
+    setEventSharesStatus('Sharing…');
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/shares`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to share event');
+        }
+        if (input) input.value = '';
+        renderEventShares(data.shares || []);
+        setEventSharesStatus('Shared. They will see this event in their list.', 'success');
+        setTimeout(() => setEventSharesStatus(''), 3000);
+    } catch (error) {
+        setEventSharesStatus(error.message, 'error');
+    }
+    return false;
+}
+
+async function removeEventShare(userId) {
+    if (!currentEvent || !isEventOwner(currentEvent)) return;
+    if (!await customConfirm('Remove this user\'s access to the event?')) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/shares/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to remove access');
+        }
+        renderEventShares(data.shares || []);
+        setEventSharesStatus('Access removed.', 'success');
+        setTimeout(() => setEventSharesStatus(''), 3000);
+    } catch (error) {
+        setEventSharesStatus(error.message, 'error');
     }
 }
 
@@ -3291,7 +3447,7 @@ function displayCaptureSettings() {
     promptPresetCount = 0;
     if (captureSettings.promptPresets && captureSettings.promptPresets.length > 0) {
         captureSettings.promptPresets.forEach((preset, index) => {
-            addPromptPresetToList(preset.name, preset.value, index);
+            addPromptPresetToList(preset.name, preset.value, index, preset.imageUrl);
         });
     }
     
@@ -3300,7 +3456,7 @@ function displayCaptureSettings() {
     promptSuggestionsList.innerHTML = '';
     if (captureSettings.promptMode === 'suggestions' && captureSettings.promptPresets && captureSettings.promptPresets.length > 0) {
         captureSettings.promptPresets.forEach((preset, index) => {
-            addPromptSuggestionToList(preset.name, preset.value, index);
+            addPromptSuggestionToList(preset.name, preset.value, index, preset.imageUrl);
         });
     }
     
@@ -3354,7 +3510,7 @@ function addPromptPreset() {
     addPromptPresetToList('', '', promptPresetCount);
 }
 
-function addPromptPresetToList(name = '', value = '', index) {
+function addPromptPresetToList(name = '', value = '', index, imageUrl = '') {
     const list = document.getElementById('promptPresetsList');
     const id = `prompt-preset-${index}`;
     promptPresetCount = Math.max(promptPresetCount, index + 1);
@@ -3374,6 +3530,7 @@ function addPromptPresetToList(name = '', value = '', index) {
             <input type="text" value="${escapeHtml(value)}" placeholder="e.g., astronaut in space suit floating...">
             <span class="hint">Hidden from users, used for generation</span>
         </div>
+        ${themePreviewMarkup(id, imageUrl)}
     `;
     list.appendChild(div);
 }
@@ -3406,7 +3563,7 @@ function addPromptSuggestion() {
     addPromptSuggestionToList('', '', promptPresetCount);
 }
 
-function addPromptSuggestionToList(name = '', value = '', index) {
+function addPromptSuggestionToList(name = '', value = '', index, imageUrl = '') {
     const list = document.getElementById('promptSuggestionsList');
     const id = `prompt-suggestion-${index}`;
     promptPresetCount = Math.max(promptPresetCount, index + 1);
@@ -3426,8 +3583,91 @@ function addPromptSuggestionToList(name = '', value = '', index) {
             <input type="text" value="${escapeHtml(value)}" placeholder="e.g., astronaut in space suit floating...">
             <span class="hint">Hidden from users, used for generation</span>
         </div>
+        ${themePreviewMarkup(id, imageUrl)}
     `;
     list.appendChild(div);
+}
+
+function themePreviewMarkup(itemId, imageUrl = '') {
+    const hasImage = Boolean(imageUrl);
+    return `
+        <div class="preset-preview">
+            <input type="hidden" class="preset-image-url" value="${escapeHtml(imageUrl || '')}">
+            <div class="preset-preview-thumb">
+                <img src="${escapeHtml(imageUrl || '')}" alt="Theme preview" ${hasImage ? '' : 'hidden'}>
+                <span class="preset-preview-placeholder" ${hasImage ? 'hidden' : ''}>No preview</span>
+            </div>
+            <div class="preset-preview-actions">
+                <input type="file" id="file-${itemId}" accept="image/png,image/jpeg,image/webp,image/jpg" hidden onchange="handleThemePreviewUpload('${itemId}', this)">
+                <button type="button" class="btn-secondary btn-sm" onclick="document.getElementById('file-${itemId}').click()">
+                    ${hasImage ? 'Replace photo' : 'Upload sample'}
+                </button>
+                <button type="button" class="btn-secondary btn-sm preset-preview-remove" onclick="removeThemePreview('${itemId}')" ${hasImage ? '' : 'hidden'}>Remove</button>
+                <span class="hint">Optional sample sticker shown on the capture page</span>
+            </div>
+        </div>
+    `;
+}
+
+function updateThemePreviewRow(itemId, imageUrl) {
+    const item = document.getElementById(itemId);
+    if (!item) return;
+    const urlInput = item.querySelector('.preset-image-url');
+    const img = item.querySelector('.preset-preview-thumb img');
+    const placeholder = item.querySelector('.preset-preview-placeholder');
+    const removeBtn = item.querySelector('.preset-preview-remove');
+    const uploadBtn = item.querySelector('.preset-preview-actions .btn-secondary');
+    if (urlInput) urlInput.value = imageUrl || '';
+    if (img) {
+        img.src = imageUrl || '';
+        img.hidden = !imageUrl;
+    }
+    if (placeholder) placeholder.hidden = Boolean(imageUrl);
+    if (removeBtn) removeBtn.hidden = !imageUrl;
+    if (uploadBtn) uploadBtn.textContent = imageUrl ? 'Replace photo' : 'Upload sample';
+}
+
+async function handleThemePreviewUpload(itemId, input) {
+    const file = input?.files?.[0];
+    input.value = '';
+    if (!file || !currentEvent) return;
+
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+        await customAlert('Please upload a PNG, JPG, or WebP image.');
+        return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+        await customAlert('Preview image must be less than 8MB.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/events/${currentEvent._id}/theme-preview`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ image: e.target.result })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to upload preview');
+            }
+            updateThemePreviewRow(itemId, data.imageUrl);
+        } catch (error) {
+            console.error('Theme preview upload error:', error);
+            await customAlert(error.message || 'Failed to upload preview');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeThemePreview(itemId) {
+    updateThemePreviewRow(itemId, '');
 }
 
 // Add Custom Text Suggestion
@@ -3479,8 +3719,9 @@ async function saveCaptureSettings() {
         document.querySelectorAll(`${listSelector} .preset-item`).forEach(item => {
             const name = item.querySelector('.preset-name input').value.trim();
             const value = item.querySelector('.preset-value input').value.trim();
+            const imageUrl = item.querySelector('.preset-image-url')?.value.trim() || '';
             if (name && value) {
-                promptPresets.push({ name, value });
+                promptPresets.push({ name, value, imageUrl });
             }
         });
         
@@ -3557,7 +3798,7 @@ async function saveCaptureSettings() {
         
         if (response.ok) {
             const updatedEvent = await response.json();
-            currentEvent = updatedEvent;
+            currentEvent = { ...currentEvent, ...updatedEvent };
             captureSettings = updatedEvent.captureSettings;
             statusDiv.textContent = '✓ Settings saved for this event!';
             statusDiv.className = 'status-message success';
@@ -3700,7 +3941,7 @@ async function saveGenerationSettings() {
 
         if (response.ok) {
             const updatedEvent = await response.json();
-            currentEvent = updatedEvent;
+            currentEvent = { ...currentEvent, ...updatedEvent };
             generationSettings = updatedEvent.generationSettings;
             statusDiv.textContent = '✓ Generation settings saved for this event!';
             statusDiv.className = 'status-message success';
@@ -3729,6 +3970,7 @@ switchTab = function(tab) {
             loadCaptureSettings();
         }
         updateExportFieldVisibility();
+        updateEventSharingView();
     }
     if (tab === 'generationSettings') {
         loadGenerationSettings();
