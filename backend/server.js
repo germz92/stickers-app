@@ -165,8 +165,10 @@ const submissionSchema = new mongoose.Schema({
     level: { type: String, enum: ['info', 'warning', 'error'], default: 'info' }
   }],
   createdAt: { type: Date, default: Date.now },
-  processedAt: { type: Date }
+  processedAt: { type: Date },
+  clientRequestId: { type: String, default: undefined }
 });
+submissionSchema.index({ clientRequestId: 1 }, { unique: true, sparse: true });
 
 const Submission = mongoose.model('Submission', submissionSchema);
 
@@ -779,9 +781,21 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
   try {
     const { eventId, name, firstName, lastName, jobTitle, company, email, phone, photo, prompt, customText } = req.body;
     const detailsPending = req.body.detailsPending === true;
+    const clientRequestId = String(req.body.clientRequestId || '').trim() || undefined;
 
     if (!eventId || !photo || !prompt) {
       return res.status(400).json({ error: 'Event, photo, and prompt are required' });
+    }
+
+    if (clientRequestId) {
+      const existing = await Submission.findOne({ clientRequestId }).select('_id');
+      if (existing) {
+        return res.status(200).json({
+          message: 'Submission already saved',
+          submissionId: existing._id,
+          duplicate: true
+        });
+      }
     }
 
     // Verify event exists, is not archived, and belongs to the capture account
@@ -813,17 +827,11 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       }
     }
 
-    // Upload photo to S3
+    // Upload photo to S3. Thumbnail is filled in after the kiosk gets a
+    // response so a slow Wi-Fi hop is not waiting on a second S3 write.
     console.log('Uploading photo to S3...');
     const photoUrl = await uploadImageToS3(photo, 'submissions');
     console.log(`Photo uploaded: ${photoUrl}`);
-
-    let photoThumb = '';
-    try {
-      photoThumb = await createPhotoThumbnailFromBase64(photo);
-    } catch (thumbErr) {
-      console.warn('Thumbnail generation failed:', thumbErr.message);
-    }
 
     const submission = new Submission({
       ownerId: event.ownerId || req.user.userId || undefined,
@@ -835,11 +843,12 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       company: event.badgeMode ? (company || '').trim() : '',
       email: email || '',
       phone: phone || '',
-      photo: photoUrl, // Store S3 URL instead of base64
-      photoThumb,
+      photo: photoUrl,
+      photoThumb: '',
       prompt,
       customText: event.badgeMode ? '' : (customText || ''),
-      status: 'pending'
+      status: 'pending',
+      clientRequestId
     });
 
     await submission.save();
@@ -868,11 +877,26 @@ app.post('/api/submissions', authenticateCapture, async (req, res) => {
       }
     }
     
+    if (photoUrl) {
+      schedulePhotoThumbBackfill(submission._id, photoUrl);
+    }
+
     res.status(201).json({ 
       message: 'Submission saved successfully',
       submissionId: submission._id
     });
   } catch (error) {
+    const duplicateKey = String(req.body.clientRequestId || '').trim();
+    if (error.code === 11000 && duplicateKey) {
+      const existing = await Submission.findOne({ clientRequestId: duplicateKey }).select('_id');
+      if (existing) {
+        return res.status(200).json({
+          message: 'Submission already saved',
+          submissionId: existing._id,
+          duplicate: true
+        });
+      }
+    }
     console.error('Submission error:', error);
     res.status(500).json({ error: error.message });
   }
@@ -1140,8 +1164,9 @@ app.get('/api/submissions/:id', authenticateAdmin, async (req, res) => {
     if (!submission) {
       return res.status(404).json({ error: 'Submission not found' });
     }
-    
-    res.json(submission);
+
+    const data = typeof submission.toObject === 'function' ? submission.toObject() : submission;
+    res.json({ ...data, galleryUrl: getGalleryUrl(submission._id) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1982,24 +2007,15 @@ app.patch('/api/submissions/:id/attendee', authenticateCapture, async (req, res)
     const hadContact = Boolean(submission.email || submission.phone);
 
     if (event.badgeMode) {
-      const nextFirst = (firstName !== undefined ? firstName : submission.firstName || '').trim();
-      const nextLast = (lastName !== undefined ? lastName : submission.lastName || '').trim();
-      const nextJob = (jobTitle !== undefined ? jobTitle : submission.jobTitle || '').trim();
-      const nextCompany = (company !== undefined ? company : submission.company || '').trim();
-      if (!nextFirst || !nextLast || !nextJob || !nextCompany) {
-        return res.status(400).json({ error: 'First name, last name, job title, and company are required' });
-      }
-      submission.firstName = nextFirst;
-      submission.lastName = nextLast;
-      submission.jobTitle = nextJob;
-      submission.company = nextCompany;
-      submission.name = `${nextFirst} ${nextLast}`.trim();
-    } else {
-      const trimmed = (name !== undefined ? name : submission.name || '').trim();
-      if (!trimmed) {
-        return res.status(400).json({ error: 'Name is required' });
-      }
-      submission.name = trimmed;
+      if (firstName !== undefined) submission.firstName = String(firstName || '').trim();
+      if (lastName !== undefined) submission.lastName = String(lastName || '').trim();
+      if (jobTitle !== undefined) submission.jobTitle = String(jobTitle || '').trim();
+      if (company !== undefined) submission.company = String(company || '').trim();
+      const displayName = `${submission.firstName || ''} ${submission.lastName || ''}`.trim();
+      if (displayName) submission.name = displayName;
+    } else if (name !== undefined) {
+      const trimmed = String(name || '').trim();
+      if (trimmed) submission.name = trimmed;
     }
 
     if (email !== undefined) submission.email = String(email || '').trim();

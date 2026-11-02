@@ -2181,11 +2181,13 @@ async function viewCompletedSubmission(id) {
 
         const isBadge = !!(submission.firstName || submission.company || currentEvent?.badgeMode);
         const val = (v) => escapeHtml(v || '');
+        const galleryUrl = submission.galleryUrl || getPublicGalleryUrl(submission._id);
+        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(galleryUrl)}`;
 
         // Create modal HTML
         const modalHTML = `
             <div class="modal-overlay" onclick="closeCompletedModal()">
-                <div class="modal-content completed-modal" onclick="event.stopPropagation()">
+                <div class="completed-modal" onclick="event.stopPropagation()">
                     <button class="modal-close" onclick="closeCompletedModal()">×</button>
                     <h2>${escapeHtml(submission.name)}'s Stickers</h2>
                     
@@ -2207,8 +2209,23 @@ async function viewCompletedSubmission(id) {
                                     <label class="edit-field">Custom Text<input type="text" id="editCustomText" value="${val(submission.customText)}"></label>
                                 `}
 
-                                <label class="edit-field">Email<input type="email" id="editEmail" value="${val(submission.email)}" placeholder="none on file"></label>
-                                <label class="edit-field">Phone<input type="tel" id="editPhone" value="${val(submission.phone)}" placeholder="none on file"></label>
+                                <label class="edit-field">Email<input type="email" id="editEmail" value="${val(submission.email)}" placeholder="none on file" autocomplete="off"></label>
+                                <label class="edit-field">Phone<input type="tel" id="editPhone" value="${val(submission.phone)}" placeholder="none on file" autocomplete="off"></label>
+
+                                <div class="share-link-block">
+                                    <label for="galleryShareUrl">Gallery link</label>
+                                    <div class="share-link-row">
+                                        <input type="text" id="galleryShareUrl" value="${escapeHtml(galleryUrl)}" readonly onclick="this.select()">
+                                        <div class="share-link-actions">
+                                            <button type="button" class="btn-sm btn-secondary" onclick="copyGalleryLink()">Copy</button>
+                                            <button type="button" class="btn-sm btn-secondary" onclick="toggleGalleryQr()">QR</button>
+                                        </div>
+                                    </div>
+                                    <div id="galleryQrWrap" class="gallery-qr-wrap">
+                                        <img src="${qrSrc}" alt="QR code for gallery link" onerror="this.style.display='none'; this.nextElementSibling.textContent='QR image could not load. Copy the link instead.';">
+                                        <p>Scan to open this gallery</p>
+                                    </div>
+                                </div>
 
                                 <div class="edit-form-actions">
                                     <button type="button" class="btn-sm btn-primary" onclick="saveSubmissionDetails('${id}', ${isBadge})">Save Changes</button>
@@ -2275,6 +2292,38 @@ async function viewCompletedSubmission(id) {
 function closeCompletedModal() {
     const modal = document.querySelector('.modal-overlay');
     if (modal) modal.remove();
+}
+
+function getPublicGalleryUrl(submissionId) {
+    return `${window.location.origin}/gallery.html?id=${encodeURIComponent(submissionId)}`;
+}
+
+async function copyGalleryLink() {
+    const input = document.getElementById('galleryShareUrl');
+    const url = input?.value;
+    if (!url) return;
+    try {
+        await navigator.clipboard.writeText(url);
+        setEditFormStatus('Gallery link copied.', 'success');
+    } catch (error) {
+        if (input) {
+            input.focus();
+            input.select();
+            document.execCommand('copy');
+            setEditFormStatus('Gallery link copied.', 'success');
+        } else {
+            setEditFormStatus('Could not copy link.', 'error');
+        }
+    }
+}
+
+function toggleGalleryQr() {
+    const wrap = document.getElementById('galleryQrWrap');
+    if (!wrap) return;
+    wrap.classList.toggle('visible');
+    if (wrap.classList.contains('visible')) {
+        wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 }
 
 function setEditFormStatus(message, type = '') {

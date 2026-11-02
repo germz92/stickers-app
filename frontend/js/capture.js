@@ -8,6 +8,7 @@ let tokenExpiryTime = null;
 let tokenCheckInterval = null;
 let selectedEvent = null;
 let pendingSubmissionId = null;
+let pendingCreateRequestId = null;
 let countdownTimer = null;
 let countdownActive = false;
 let selectedThemePrompt = '';
@@ -367,7 +368,7 @@ function takePhoto() {
     // Reset transformation
     context.setTransform(1, 0, 0, 1, 0, 0);
     
-    photoData = canvas.toDataURL('image/jpeg', 0.9);
+    photoData = compressCanvasToJpeg(canvas, 1280, 0.72);
     
     // Stop camera
     stopCamera();
@@ -709,8 +710,76 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function newClientRequestId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `kiosk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function compressCanvasToJpeg(sourceCanvas, maxEdge = 1280, quality = 0.72) {
+    const width = sourceCanvas.width || 1;
+    const height = sourceCanvas.height || 1;
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(width * scale));
+    out.height = Math.max(1, Math.round(height * scale));
+    const ctx = out.getContext('2d');
+    ctx.drawImage(sourceCanvas, 0, 0, out.width, out.height);
+    return out.toDataURL('image/jpeg', quality);
+}
+
+async function parseJsonSafe(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        return { error: 'The server sent an unexpected response. Check the Wi-Fi and try again.' };
+    }
+}
+
+function kioskNetworkError(error) {
+    if (error?.name === 'AbortError') {
+        return new Error('The connection timed out. Check the kiosk Wi-Fi and try again.');
+    }
+    if (error?.message === 'Failed to fetch' || error?.name === 'TypeError') {
+        return new Error('No connection. Check the kiosk Wi-Fi and try again.');
+    }
+    return error instanceof Error ? error : new Error(String(error || 'Something went wrong'));
+}
+
+async function kioskFetch(url, options = {}, { timeoutMs = 20000, retries = 2 } = {}) {
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timer);
+            const data = await parseJsonSafe(response);
+            if (response.ok) return { response, data };
+            const err = new Error(data.error || `Request failed (${response.status})`);
+            err.status = response.status;
+            if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+                throw err;
+            }
+            lastError = err;
+        } catch (error) {
+            clearTimeout(timer);
+            if (error.status && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
+                throw error;
+            }
+            lastError = kioskNetworkError(error);
+        }
+        if (attempt < retries) {
+            await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
 function resetCaptureForm() {
     pendingSubmissionId = null;
+    pendingCreateRequestId = null;
     selectedThemePrompt = '';
     document.getElementById('nameInput').value = '';
     document.getElementById('firstNameInput').value = '';
@@ -791,6 +860,37 @@ function isCustomTextRequired() {
     return settings.customTextMode === 'presets';
 }
 
+function isIdentityComplete() {
+    if (isBadgeMode()) {
+        const firstName = document.getElementById('firstNameInput')?.value.trim();
+        const lastName = document.getElementById('lastNameInput')?.value.trim();
+        const jobTitle = document.getElementById('jobTitleInput')?.value.trim();
+        const company = document.getElementById('companyInput')?.value.trim();
+        return !!(firstName && lastName && jobTitle && company);
+    }
+    return !!document.getElementById('nameInput')?.value.trim();
+}
+
+function getAttendeePayload() {
+    const badgeMode = isBadgeMode();
+    const firstName = document.getElementById('firstNameInput')?.value.trim() || '';
+    const lastName = document.getElementById('lastNameInput')?.value.trim() || '';
+    const jobTitle = document.getElementById('jobTitleInput')?.value.trim() || '';
+    const company = document.getElementById('companyInput')?.value.trim() || '';
+    const name = badgeMode
+        ? `${firstName} ${lastName}`.trim()
+        : (document.getElementById('nameInput')?.value.trim() || '');
+    return {
+        name,
+        firstName: badgeMode ? firstName : '',
+        lastName: badgeMode ? lastName : '',
+        jobTitle: badgeMode ? jobTitle : '',
+        company: badgeMode ? company : '',
+        email: document.getElementById('emailInput')?.value.trim() || '',
+        phone: document.getElementById('phoneInput')?.value.trim() || ''
+    };
+}
+
 function validateTheme() {
     const prompt = getThemePrompt();
     const customText = document.getElementById('customTextInput')?.value.trim();
@@ -801,20 +901,29 @@ function validateTheme() {
 }
 
 function validateDetails() {
-    let fieldsValid;
-    if (isBadgeMode()) {
-        const firstName = document.getElementById('firstNameInput').value.trim();
-        const lastName = document.getElementById('lastNameInput').value.trim();
-        const jobTitle = document.getElementById('jobTitleInput').value.trim();
-        const company = document.getElementById('companyInput').value.trim();
-        fieldsValid = !!(firstName && lastName && jobTitle && company);
-    } else {
-        fieldsValid = !!document.getElementById('nameInput').value.trim();
-    }
-
     const submitBtn = document.getElementById('submitBtn');
     if (submitBtn) {
-        submitBtn.disabled = !(fieldsValid && pendingSubmissionId);
+        submitBtn.disabled = !(pendingSubmissionId && isIdentityComplete());
+    }
+}
+
+async function saveAttendeeOnBlur() {
+    if (!pendingSubmissionId) return;
+    const payload = getAttendeePayload();
+    if (!payload.name && !payload.firstName && !payload.lastName && !payload.email && !payload.phone) {
+        return;
+    }
+    try {
+        await kioskFetch(`${API_BASE_URL}/submissions/${pendingSubmissionId}/attendee`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        }, { timeoutMs: 10000, retries: 1 });
+    } catch (error) {
+        console.warn('Attendee autosave failed:', error.message);
     }
 }
 
@@ -830,6 +939,11 @@ document.getElementById('firstNameInput')?.addEventListener('input', validateDet
 document.getElementById('lastNameInput')?.addEventListener('input', validateDetails);
 document.getElementById('jobTitleInput')?.addEventListener('input', validateDetails);
 document.getElementById('companyInput')?.addEventListener('input', validateDetails);
+['nameInput', 'firstNameInput', 'lastNameInput', 'jobTitleInput', 'companyInput', 'emailInput', 'phoneInput'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('blur', saveAttendeeOnBlur);
+});
 
 async function startGenerationAndContinue() {
     const badgeMode = isBadgeMode();
@@ -853,8 +967,12 @@ async function startGenerationAndContinue() {
     continueBtn.disabled = true;
     continueBtn.textContent = 'Creating stickers...';
 
+    if (!pendingCreateRequestId) {
+        pendingCreateRequestId = newClientRequestId();
+    }
+
     try {
-        const response = await fetch(`${API_BASE_URL}/submissions`, {
+        const { data } = await kioskFetch(`${API_BASE_URL}/submissions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -863,17 +981,13 @@ async function startGenerationAndContinue() {
             body: JSON.stringify({
                 eventId: selectedEvent._id,
                 detailsPending: true,
+                clientRequestId: pendingCreateRequestId,
                 name: 'Guest',
                 photo: photoData,
                 prompt,
                 customText
             })
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || 'Could not start generation');
-        }
+        }, { timeoutMs: 25000, retries: 2 });
 
         pendingSubmissionId = data.submissionId;
         showFormPhase('details');
@@ -884,7 +998,7 @@ async function startGenerationAndContinue() {
         }, 100);
     } catch (error) {
         console.error('Early generation error:', error);
-        await customAlert(`Error: ${error.message}`);
+        await customAlert(error.message || 'Could not start generation');
         continueBtn.disabled = false;
         continueBtn.textContent = 'Create My Stickers';
         validateTheme();
@@ -907,12 +1021,10 @@ async function submitCapture() {
         await customAlert('Please pick your look first.');
         return;
     }
-    if (!name) {
-        await customAlert('Please enter your name.');
-        return;
-    }
-    if (badgeMode && (!firstName || !lastName || !jobTitle || !company)) {
-        await customAlert('Please enter your first name, last name, job title, and company.');
+    if (!isIdentityComplete()) {
+        await customAlert(isBadgeMode()
+            ? 'Please enter your first name, last name, job title, and company.'
+            : 'Please enter your name.');
         return;
     }
 
@@ -921,7 +1033,7 @@ async function submitCapture() {
     submitBtn.textContent = 'Saving...';
 
     try {
-        const response = await fetch(`${API_BASE_URL}/submissions/${pendingSubmissionId}/attendee`, {
+        await kioskFetch(`${API_BASE_URL}/submissions/${pendingSubmissionId}/attendee`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -936,17 +1048,12 @@ async function submitCapture() {
                 email,
                 phone
             })
-        });
-
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || 'Could not save details');
-        }
+        }, { timeoutMs: 12000, retries: 2 });
 
         showStep('thankyou');
     } catch (error) {
         console.error('Details save error:', error);
-        await customAlert(`Error: ${error.message}`);
+        await customAlert(error.message || 'Could not save details');
         submitBtn.disabled = false;
         submitBtn.textContent = 'Finish';
     }

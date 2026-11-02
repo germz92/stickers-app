@@ -633,18 +633,19 @@ header h1 {
     padding: 20px;
 }
 
-.modal-content {
+.completed-modal {
     background: rgba(18, 18, 18, 0.95);
     border-radius: 8px;
     border: 1px solid rgba(0, 229, 255, 0.3);
-    max-width: 1400px;
-    width: 95%;
-    max-height: 90vh;
+    max-width: min(1400px, 96vw);
+    width: 96%;
+    max-height: 92vh;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 30px;
+    padding: 28px 32px 32px;
     position: relative;
     box-sizing: border-box;
+    text-align: left;
 }
 
 .modal-close {
@@ -671,17 +672,19 @@ header h1 {
 .completed-modal h2 {
     color: #ffffff;
     margin-bottom: 25px;
+    padding-right: 40px;
     font-weight: 300;
     letter-spacing: 1px;
 }
 
 .completed-details {
     display: grid;
-    grid-template-columns: 350px 1fr;
-    gap: 30px;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 900px) {
     .completed-details {
         grid-template-columns: 1fr;
     }
@@ -774,6 +777,76 @@ header h1 {
     margin-top: 4px;
 }
 
+.edit-form-actions button,
+.share-link-actions button,
+.completed-modal .modal-actions button {
+    width: auto;
+}
+
+.share-link-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.share-link-block > label {
+    color: #9aa0a6;
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.share-link-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.share-link-row input {
+    width: 100%;
+    margin-bottom: 0;
+    font-size: 0.82rem;
+}
+
+.share-link-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.share-link-actions button {
+    flex: 1;
+}
+
+.gallery-qr-wrap {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.gallery-qr-wrap.visible {
+    display: flex;
+}
+
+.gallery-qr-wrap img {
+    width: 200px;
+    height: 200px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.gallery-qr-wrap p {
+    margin: 0;
+    color: #888;
+    font-size: 0.85em;
+}
+
 .edit-form-status {
     margin: 0;
     min-height: 1.1em;
@@ -842,6 +915,11 @@ header h1 {
     color: #b0b0b0;
 }
 
+.left-column,
+.right-column {
+    min-width: 0;
+}
+
 .right-column .stickers-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -853,6 +931,10 @@ header h1 {
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+.sticker-item button {
+    width: 100%;
 }
 
 .sticker-item img {
@@ -871,8 +953,9 @@ header h1 {
 
 .modal-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
-    justify-content: flex-end;
+    justify-content: flex-start;
 }
 
 .submission-actions {
@@ -1480,7 +1563,7 @@ header h1 {
     backdrop-filter: blur(10px);
 }
 
-.modal-content {
+.modal .modal-content {
     background: rgba(18, 18, 18, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 40px;
@@ -1490,20 +1573,20 @@ header h1 {
     text-align: center;
 }
 
-.modal-content h2 {
+.modal .modal-content h2 {
     color: #ffffff;
     font-weight: 300;
     letter-spacing: 2px;
     margin-bottom: 10px;
 }
 
-.modal-content p {
+.modal .modal-content p {
     margin-bottom: 25px;
     color: #888;
     font-size: 0.9em;
 }
 
-.modal-content input {
+.modal .modal-content input {
     width: 100%;
     padding: 12px 16px;
     margin-bottom: 15px;
@@ -1515,14 +1598,14 @@ header h1 {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.modal-content input:focus {
+.modal .modal-content input:focus {
     outline: none;
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(0, 229, 255, 0.5);
     box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.1);
 }
 
-.modal-content button {
+.modal .modal-content button {
     width: 100%;
 }
 
@@ -2430,15 +2513,22 @@ footer {
     .mode-options {
         grid-template-columns: 1fr;
     }
-    
-    .completed-details {
-        flex-direction: column;
-    }
 }
 
 @media (max-width: 768px) {
     body {
         overflow-x: hidden;
+    }
+
+    .modal-overlay {
+        padding: 8px;
+        align-items: flex-start;
+    }
+
+    .completed-modal {
+        width: 100%;
+        padding: 16px;
+        max-height: 100%;
     }
     
     .container {
